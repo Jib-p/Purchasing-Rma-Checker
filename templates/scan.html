@@ -1,0 +1,740 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Phone Scanner — Return Candidate Finder</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f0f2f5;
+            color: #1a1a2e;
+            min-height: 100vh;
+        }
+
+        /* ── Header ─────────────────────────────────────────── */
+        .header {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: white;
+            padding: 20px 40px;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        }
+        .header a.back {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            color: rgba(255,255,255,0.7);
+            text-decoration: none;
+            font-size: 14px;
+            white-space: nowrap;
+        }
+        .header a.back:hover { color: white; }
+        .header h1 { font-size: 22px; font-weight: 600; }
+        .header p  { font-size: 13px; opacity: 0.65; margin-top: 3px; }
+
+        /* ── Layout ─────────────────────────────────────────── */
+        .container { max-width: 860px; margin: 0 auto; padding: 24px 32px; }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 24px 28px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+            margin-bottom: 24px;
+        }
+        .card h2 { font-size: 17px; color: #1a1a2e; margin-bottom: 16px; }
+
+        /* ── Scanner ─────────────────────────────────────────── */
+        .scanner-wrap {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 16px;
+        }
+
+        #webcam { display: none; }
+
+        #displayCanvas {
+            border-radius: 10px;
+            background: #111;
+            max-width: 100%;
+            display: block;
+        }
+
+        /* ── Status badge ────────────────────────────────────── */
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 7px 16px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 600;
+            transition: background 0.3s, color 0.3s;
+        }
+        .status-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+
+        .s-loading  { background: #ebf8ff; color: #2b6cb0; border: 1px solid #bee3f8; }
+        .s-scanning { background: #f7fafc; color: #4a5568; border: 1px solid #e2e8f0; }
+        .s-locking  { background: #fffaf0; color: #c05621; border: 1px solid #fbd38d; }
+        .s-captured { background: #e6ffed; color: #276749; border: 1px solid #9ae6b4; }
+        .s-error    { background: #fff5f5; color: #c53030; border: 1px solid #feb2b2; }
+        .s-paused   { background: #f7fafc; color: #718096; border: 1px solid #e2e8f0; }
+
+        .s-locking  .status-dot { animation: pulse 0.5s ease-in-out infinite alternate; }
+        .s-scanning .status-dot { animation: pulse 1.4s ease-in-out infinite alternate; }
+        @keyframes pulse { from { opacity: 0.25; } to { opacity: 1; } }
+
+        /* ── Controls ────────────────────────────────────────── */
+        .controls { display: flex; gap: 10px; }
+        .btn {
+            padding: 9px 20px;
+            border: none;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.15s;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .btn-outline {
+            background: white;
+            color: #4a5568;
+            border: 1px solid #d1d5db;
+        }
+        .btn-outline:hover { background: #f7fafc; }
+        .btn-outline:disabled { opacity: 0.45; cursor: not-allowed; }
+
+        /* ── Captures ────────────────────────────────────────── */
+        .captures-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+            gap: 14px;
+        }
+        .cap-item {
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid #e2e8f0;
+            background: white;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        }
+        .cap-item img { width: 100%; display: block; cursor: pointer; }
+        .cap-footer {
+            padding: 7px 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 11px;
+            color: #a0aec0;
+        }
+        .cap-footer a {
+            color: #4c6ef5;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 12px;
+        }
+        .cap-footer a:hover { text-decoration: underline; }
+        .empty-msg { color: #a0aec0; font-size: 13px; font-style: italic; text-align: center; padding: 20px 0; }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <a class="back" href="/" id="backLink">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <polyline points="15 18 9 12 15 6"/>
+        </svg>
+        Back
+    </a>
+    <div>
+        <h1>Phone Scanner</h1>
+        <p id="scannerSubtitle">Hold a phone in front of the camera — it auto-captures when the phone is centered and held steady</p>
+    </div>
+</div>
+<div id="projectBanner" style="display:none; padding:12px 40px; background:#ebf4ff; border-bottom:1px solid #bae6fd; color:#0c4a6e; font-size:13px;">
+    <strong id="projectBannerText"></strong>
+    <span id="uploadStatus" style="margin-left:12px; color:#4a5568;"></span>
+</div>
+
+<div class="container">
+
+    <!-- Scanner card -->
+    <div class="card">
+        <div class="scanner-wrap">
+            <div id="statusBadge" class="status-badge s-loading">
+                <div class="status-dot"></div>
+                <span id="statusText">Starting camera…</span>
+            </div>
+
+            <video id="webcam" autoplay playsinline muted></video>
+            <canvas id="displayCanvas" width="640" height="480"></canvas>
+
+            <div class="controls">
+                <button class="btn btn-outline" id="captureBtn" onclick="manualCapture()" disabled>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4" fill="currentColor"/></svg>
+                    Capture Now
+                </button>
+                <button class="btn btn-outline" id="toggleBtn" onclick="togglePause()" disabled>
+                    <svg width="14" height="14" id="toggleIcon" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+                    Pause
+                </button>
+                <button class="btn btn-outline" onclick="clearCaptures()">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+                    Clear All
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Captures card -->
+    <div class="card">
+        <h2>
+            Captured Photos
+            <span id="captureCount" style="font-size:13px;color:#718096;font-weight:400;margin-left:6px;"></span>
+        </h2>
+        <div id="capturesGrid" class="captures-grid">
+            <div class="empty-msg">Photos captured will appear here</div>
+        </div>
+    </div>
+
+</div>
+
+<script>
+// ── Elements ────────────────────────────────────────────────────
+const video        = document.getElementById('webcam');
+const canvas       = document.getElementById('displayCanvas');
+const ctx          = canvas.getContext('2d');
+const statusBadge  = document.getElementById('statusBadge');
+const statusText   = document.getElementById('statusText');
+const captureBtn   = document.getElementById('captureBtn');
+const toggleBtn    = document.getElementById('toggleBtn');
+
+// ── Config ───────────────────────────────────────────────────────
+const SCORE_MIN         = 0.35;   // min confidence to consider a detection
+const CENTER_TOL        = 0.17;   // fraction of frame allowed off-center
+const STABLE_NEEDED     = 100;    // frames phone must stay in position
+const COOLDOWN_MS       = 3500;   // ms between auto-captures
+const OUTLINE_W         = 0.30;   // phone outline width ratio
+const OUTLINE_H         = 0.76;   // phone outline height ratio
+const CORNER_R          = 22;     // outline corner radius
+
+// ── State ────────────────────────────────────────────────────────
+let model        = null;
+let paused       = false;
+let detecting    = false;
+let stableFrames = 0;
+let lastCapture  = 0;
+let capturing    = false;
+let captureSeq   = 0;
+let flashAlpha   = 0;
+let phoneState   = {};   // shared between draw & detect loops
+
+// ── Persistence ──────────────────────────────────────────────────
+const STORAGE_KEY       = 'scan_captures';
+const STORAGE_SEQ_KEY   = 'scan_captureSeq';
+const STORAGE_STATE_KEY = 'scan_processState';
+
+function saveCaptures() {
+    const items = document.querySelectorAll('#capturesGrid .cap-item');
+    const data  = [];
+    items.forEach(item => {
+        const img  = item.querySelector('img');
+        const meta = item.querySelector('.cap-footer span');
+        if (img && meta) data.push({ dataUrl: img.src, meta: meta.textContent });
+    });
+    try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+        localStorage.setItem(STORAGE_SEQ_KEY, String(captureSeq));
+    } catch (e) {
+        console.warn('Storage full, oldest captures will not persist:', e);
+    }
+}
+
+function saveProcessState() {
+    localStorage.setItem(STORAGE_STATE_KEY, JSON.stringify({ paused }));
+}
+
+function loadProcessState() {
+    const raw = localStorage.getItem(STORAGE_STATE_KEY);
+    if (!raw) return null;
+    try { return JSON.parse(raw); } catch { return null; }
+}
+
+function loadCaptures() {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    const seq = localStorage.getItem(STORAGE_SEQ_KEY);
+    if (!raw) return;
+    try {
+        const data = JSON.parse(raw);
+        if (!data.length) return;
+
+        captureSeq = seq ? parseInt(seq, 10) : data.length;
+        const grid  = document.getElementById('capturesGrid');
+        const empty = grid.querySelector('.empty-msg');
+        if (empty) empty.remove();
+
+        // Items are stored newest-first (same order as DOM), so just append
+        data.forEach(({ dataUrl, meta }) => {
+            const item = document.createElement('div');
+            item.className = 'cap-item';
+
+            const img   = document.createElement('img');
+            img.src     = dataUrl;
+            img.onclick = () => { const w = window.open(); w.document.write(`<img src="${dataUrl}" style="max-width:100%">`); };
+
+            const footer = document.createElement('div');
+            footer.className = 'cap-footer';
+
+            const span = document.createElement('span');
+            span.textContent = meta;
+
+            const dl       = document.createElement('a');
+            dl.href        = dataUrl;
+            dl.download    = `scan_${meta.split('#')[1]?.split(' ')[0] || 'img'}.jpg`;
+            dl.textContent = 'Save';
+
+            footer.appendChild(span);
+            footer.appendChild(dl);
+            item.appendChild(img);
+            item.appendChild(footer);
+            grid.appendChild(item);
+        });
+
+        document.getElementById('captureCount').textContent = `(${captureSeq})`;
+    } catch (e) {
+        console.warn('Failed to restore captures:', e);
+    }
+}
+
+// ── Init ─────────────────────────────────────────────────────────
+async function init() {
+    loadCaptures();
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: { width: { ideal: 640 }, height: { ideal: 480 } }
+        });
+        video.srcObject = stream;
+        await video.play();
+        canvas.width  = video.videoWidth  || 640;
+        canvas.height = video.videoHeight || 480;
+    } catch (err) {
+        setStatus('s-error', 'Camera error: ' + err.message);
+        return;
+    }
+
+    setStatus('s-loading', 'Loading detection model…');
+    try {
+        model = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
+    } catch (err) {
+        setStatus('s-error', 'Model failed to load');
+        return;
+    }
+
+    captureBtn.disabled = false;
+    toggleBtn.disabled  = false;
+
+    // Restore process state from previous session
+    const savedState = loadProcessState();
+    if (savedState && savedState.paused) {
+        paused = true;
+        toggleBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg> Resume`;
+        setStatus('s-paused', 'Paused');
+    } else {
+        setStatus('s-scanning', 'Align phone in the outline');
+    }
+
+    drawLoop();
+}
+
+// ── Draw loop (runs every animation frame) ───────────────────────
+function drawLoop() {
+    // Draw video frame
+    if (!paused && video.readyState >= 2) {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    } else if (paused) {
+        // keep last frame — just redraw outline on top
+        ctx.fillStyle = 'rgba(0,0,0,0.35)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
+    // White capture flash
+    if (flashAlpha > 0) {
+        ctx.fillStyle = `rgba(255,255,255,${flashAlpha})`;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        flashAlpha = Math.max(0, flashAlpha - 0.07);
+    }
+
+    // Draw phone outline
+    const ol = outlineRect();
+    drawOutline(ol);
+
+    // Progress ring above outline
+    drawProgressRing(ol);
+
+    // Kick async detection (non-blocking, won't stack)
+    if (model && !detecting && !paused && video.readyState >= 2) {
+        runDetection();
+    }
+
+    requestAnimationFrame(drawLoop);
+}
+
+// ── Async detection ───────────────────────────────────────────────
+async function runDetection() {
+    detecting = true;
+    try {
+        const preds  = await model.detect(video);
+        const phones = preds.filter(p => p.class === 'cell phone' && p.score >= SCORE_MIN);
+
+        const ol     = outlineRect();
+        const outCX  = ol.x + ol.w / 2;
+        const outCY  = ol.y + ol.h / 2;
+
+        let best       = null;
+        let inPosition = false;
+
+        if (phones.length) {
+            best = phones.reduce((a, b) => a.score > b.score ? a : b);
+            const [px, py, pw, ph] = best.bbox;
+            const dX = Math.abs(px + pw / 2 - outCX);
+            const dY = Math.abs(py + ph / 2 - outCY);
+            inPosition = dX < canvas.width  * CENTER_TOL
+                      && dY < canvas.height * CENTER_TOL;
+        }
+
+        // Stable-frame counter
+        if (inPosition && !capturing) {
+            stableFrames = Math.min(stableFrames + 1, STABLE_NEEDED + 5);
+        } else {
+            stableFrames = Math.max(0, stableFrames - 1);
+        }
+
+        phoneState = {
+            inPosition,
+            progress: Math.min(stableFrames / STABLE_NEEDED, 1),
+            hasPhone: !!best,
+        };
+
+        // Draw detection bounding box
+        if (best) {
+            const [px, py, pw, ph] = best.bbox;
+            const col = inPosition ? 'rgba(72,187,120,0.85)' : 'rgba(246,173,85,0.85)';
+            ctx.save();
+            ctx.strokeStyle = col;
+            ctx.lineWidth   = 2;
+            ctx.setLineDash([5, 4]);
+            ctx.strokeRect(px, py, pw, ph);
+            ctx.setLineDash([]);
+
+            // Score label
+            ctx.fillStyle = col;
+            ctx.fillRect(px, py - 22, 92, 22);
+            ctx.fillStyle = 'white';
+            ctx.font      = 'bold 12px monospace';
+            ctx.fillText(`Phone ${Math.round(best.score * 100)}%`, px + 5, py - 6);
+            ctx.restore();
+        }
+
+        // Status text
+        if (!capturing) {
+            if (stableFrames >= STABLE_NEEDED) {
+                // will be captured below
+            } else if (stableFrames > 0) {
+                setStatus('s-locking', `Hold steady… ${Math.round(phoneState.progress * 100)}%`);
+            } else if (best) {
+                setStatus('s-scanning', 'Center the phone in the outline');
+            } else {
+                setStatus('s-scanning', 'Align phone in the outline');
+            }
+        }
+
+        // Auto-capture trigger
+        const now = Date.now();
+        if (stableFrames >= STABLE_NEEDED && !capturing && now - lastCapture > COOLDOWN_MS) {
+            doCapture();
+        }
+
+    } finally {
+        detecting = false;
+    }
+}
+
+// ── Outline helpers ───────────────────────────────────────────────
+function outlineRect() {
+    const w = canvas.width  * OUTLINE_W;
+    const h = canvas.height * OUTLINE_H;
+    return { x: (canvas.width - w) / 2, y: (canvas.height - h) / 2, w, h };
+}
+
+function drawOutline({ x, y, w, h }) {
+    const { inPosition, progress = 0 } = phoneState;
+    const locked  = inPosition && progress > 0.5;
+    const baseCol = locked ? `rgba(72,187,120,${0.55 + progress * 0.45})`
+                           : 'rgba(255,255,255,0.65)';
+
+    ctx.save();
+    if (locked) {
+        ctx.shadowColor = 'rgba(72,187,120,0.6)';
+        ctx.shadowBlur  = 18;
+    }
+
+    // Main rounded rect
+    ctx.beginPath();
+    roundRect(x, y, w, h, CORNER_R);
+    ctx.strokeStyle = baseCol;
+    ctx.lineWidth   = 2.5;
+    ctx.stroke();
+    ctx.restore();
+
+    // Corner accent marks
+    const AL  = 22;
+    const acc = locked ? '#48bb78' : 'rgba(255,255,255,0.9)';
+    ctx.strokeStyle = acc;
+    ctx.lineWidth   = 3;
+    ctx.lineCap     = 'round';
+
+    // TL
+    line(x + CORNER_R,        y,         x + CORNER_R + AL,     y);
+    line(x,                   y + CORNER_R, x,                   y + CORNER_R + AL);
+    // TR
+    line(x + w - CORNER_R - AL, y,       x + w - CORNER_R,      y);
+    line(x + w,               y + CORNER_R, x + w,               y + CORNER_R + AL);
+    // BL
+    line(x + CORNER_R,        y + h,     x + CORNER_R + AL,     y + h);
+    line(x,                   y + h - CORNER_R - AL, x,         y + h - CORNER_R);
+    // BR
+    line(x + w - CORNER_R - AL, y + h,   x + w - CORNER_R,      y + h);
+    line(x + w,               y + h - CORNER_R - AL, x + w,     y + h - CORNER_R);
+
+    // Speaker bump
+    const bW = w * 0.26;
+    ctx.strokeStyle = baseCol;
+    ctx.lineWidth   = 3;
+    ctx.lineCap     = 'round';
+    line(x + (w - bW) / 2, y + 13, x + (w + bW) / 2, y + 13);
+
+    // Home button circle
+    ctx.beginPath();
+    ctx.arc(x + w / 2, y + h - 15, 7, 0, Math.PI * 2);
+    ctx.strokeStyle = baseCol;
+    ctx.lineWidth   = 2;
+    ctx.stroke();
+}
+
+function drawProgressRing({ x, y, w }) {
+    const { progress = 0 } = phoneState;
+    if (progress <= 0) return;
+
+    const cx = x + w / 2;
+    const cy = y - 28;
+    const r  = 16;
+
+    // Background track
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+    ctx.lineWidth   = 4;
+    ctx.stroke();
+
+    // Progress arc
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + 2 * Math.PI * progress);
+    ctx.strokeStyle = progress > 0.75 ? '#48bb78' : '#f6ad55';
+    ctx.lineWidth   = 4;
+    ctx.stroke();
+}
+
+// ── Capture ───────────────────────────────────────────────────────
+function doCapture() {
+    capturing    = true;
+    lastCapture  = Date.now();
+    stableFrames = 0;
+    flashAlpha   = 1.0;
+
+    // Snapshot raw video (no overlay)
+    const snap    = document.createElement('canvas');
+    snap.width    = video.videoWidth;
+    snap.height   = video.videoHeight;
+    snap.getContext('2d').drawImage(video, 0, 0);
+
+    addToGrid(snap.toDataURL('image/jpeg', 0.92));
+    setStatus('s-captured', 'Captured!');
+
+    setTimeout(() => {
+        capturing = false;
+        setStatus('s-scanning', 'Align phone in the outline');
+    }, 2500);
+}
+
+function manualCapture() {
+    if (video.readyState < 2) return;
+    stableFrames = 0;
+    doCapture();
+}
+
+// ── Project integration ───────────────────────────────────────────
+const PROJECT_TOKEN = new URLSearchParams(location.search).get('project') || null;
+let uploadedCount = 0;
+
+function updateProjectBanner() {
+    if (!PROJECT_TOKEN) return;
+    const banner = document.getElementById('projectBanner');
+    banner.style.display = 'block';
+    document.getElementById('projectBannerText').textContent =
+        'Scanning for project — photos auto-save to the project page';
+    document.getElementById('scannerSubtitle').textContent =
+        'Captures automatically upload and attach to this project';
+    // Override the Back link to return to the project page
+    document.getElementById('backLink').href = '/project/' + PROJECT_TOKEN;
+}
+updateProjectBanner();
+
+function setUploadStatus(msg, color) {
+    const el = document.getElementById('uploadStatus');
+    if (!el) return;
+    el.textContent = msg || '';
+    el.style.color = color || '#4a5568';
+}
+
+function dataUrlToBlob(dataUrl) {
+    const [head, b64] = dataUrl.split(',');
+    const mime = /data:(.*?);base64/.exec(head)[1];
+    const bin = atob(b64);
+    const arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    return new Blob([arr], { type: mime });
+}
+
+async function uploadCapture(dataUrl, itemEl, metaEl) {
+    if (!PROJECT_TOKEN) return;
+    try {
+        metaEl.textContent = metaEl.textContent + ' · uploading…';
+        const blob = dataUrlToBlob(dataUrl);
+        const fd = new FormData();
+        fd.append('photo', blob, `scan_${captureSeq}.jpg`);
+        const res = await fetch('/project/' + PROJECT_TOKEN + '/photo/upload', {
+            method: 'POST', body: fd, credentials: 'same-origin',
+        });
+        if (res.status === 403) {
+            metaEl.textContent = metaEl.textContent.replace(' · uploading…', ' · ⚠ log in as admin');
+            setUploadStatus('Admin login required to save photos to this project', '#c53030');
+            return;
+        }
+        const data = await res.json();
+        if (data.ok) {
+            uploadedCount++;
+            metaEl.textContent = metaEl.textContent.replace(' · uploading…', ' · ✓ saved');
+            itemEl.style.borderColor = '#9ae6b4';
+            setUploadStatus(`Uploaded ${uploadedCount} photo(s) to project`, '#276749');
+        } else {
+            metaEl.textContent = metaEl.textContent.replace(' · uploading…', ' · upload failed');
+            setUploadStatus('Upload failed: ' + (data.message || data.error || 'unknown'), '#c53030');
+        }
+    } catch (e) {
+        metaEl.textContent = metaEl.textContent.replace(' · uploading…', ' · upload failed');
+        setUploadStatus('Upload error: ' + e.message, '#c53030');
+    }
+}
+
+// ── Captures grid ─────────────────────────────────────────────────
+function addToGrid(dataUrl) {
+    captureSeq++;
+    const grid = document.getElementById('capturesGrid');
+    const empty = grid.querySelector('.empty-msg');
+    if (empty) empty.remove();
+
+    const time = new Date().toLocaleTimeString();
+    const item = document.createElement('div');
+    item.className = 'cap-item';
+
+    const img  = document.createElement('img');
+    img.src    = dataUrl;
+    img.title  = `Capture #${captureSeq}`;
+    img.onclick = () => { const w = window.open(); w.document.write(`<img src="${dataUrl}" style="max-width:100%">`); };
+
+    const footer = document.createElement('div');
+    footer.className = 'cap-footer';
+
+    const meta = document.createElement('span');
+    meta.textContent = `#${captureSeq} · ${time}`;
+
+    const dl      = document.createElement('a');
+    dl.href       = dataUrl;
+    dl.download   = `scan_${captureSeq}.jpg`;
+    dl.textContent = 'Save';
+
+    footer.appendChild(meta);
+    footer.appendChild(dl);
+    item.appendChild(img);
+    item.appendChild(footer);
+    grid.prepend(item);
+
+    document.getElementById('captureCount').textContent = `(${captureSeq})`;
+    saveCaptures();
+
+    // Auto-upload to the invoice if launched from an invoice page
+    if (PROJECT_TOKEN) uploadCapture(dataUrl, item, meta);
+}
+
+function clearCaptures() {
+    captureSeq = 0;
+    document.getElementById('capturesGrid').innerHTML = '<div class="empty-msg">Photos captured will appear here</div>';
+    document.getElementById('captureCount').textContent = '';
+    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(STORAGE_SEQ_KEY);
+    localStorage.removeItem(STORAGE_STATE_KEY);
+}
+
+// ── Controls ──────────────────────────────────────────────────────
+function togglePause() {
+    paused = !paused;
+    const icon = document.getElementById('toggleIcon');
+    if (paused) {
+        toggleBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg> Resume`;
+        setStatus('s-paused', 'Paused');
+    } else {
+        toggleBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg> Pause`;
+        setStatus('s-scanning', 'Align phone in the outline');
+    }
+    saveProcessState();
+}
+
+// ── Utilities ─────────────────────────────────────────────────────
+function setStatus(cls, text) {
+    statusBadge.className = `status-badge ${cls}`;
+    statusText.textContent = text;
+}
+
+function roundRect(x, y, w, h, r) {
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.arcTo(x + w, y, x + w, y + r, r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+    ctx.lineTo(x + r, y + h);
+    ctx.arcTo(x, y + h, x, y + h - r, r);
+    ctx.lineTo(x, y + r);
+    ctx.arcTo(x, y, x + r, y, r);
+    ctx.closePath();
+}
+
+function line(x1, y1, x2, y2) {
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+}
+
+// ── Start ─────────────────────────────────────────────────────────
+init();
+</script>
+</body>
+</html>

@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Project {{ project.project_number }} — Return Lot</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f0f2f5;
+            color: #1a1a2e;
+            min-height: 100vh;
+        }
+        .header {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: white;
+            padding: 20px 40px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        }
+        .header h1 { font-size: 22px; font-weight: 600; }
+        .header .meta { font-size: 13px; opacity: 0.75; margin-top: 3px; }
+        .header-actions { display: flex; gap: 10px; align-items: center; }
+        .header-actions a, .header-actions button {
+            font-size: 13px;
+            padding: 7px 14px;
+            border-radius: 6px;
+            background: rgba(255,255,255,0.12);
+            border: 1px solid rgba(255,255,255,0.25);
+            color: white;
+            text-decoration: none;
+            cursor: pointer;
+            font-family: inherit;
+            font-weight: 600;
+        }
+        .header-actions a:hover, .header-actions button:hover { background: rgba(255,255,255,0.22); }
+
+        .container { max-width: 1200px; margin: 0 auto; padding: 24px 32px; }
+        .flash { padding: 12px 20px; border-radius: 8px; margin-bottom: 16px; font-size: 14px; }
+        .flash.error { background: #fde8e8; color: #c53030; border: 1px solid #feb2b2; }
+        .flash.warning { background: #fefcbf; color: #975a16; border: 1px solid #f6e05e; }
+        .flash.success { background: #e6ffed; color: #276749; border: 1px solid #9ae6b4; }
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 24px 28px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+            margin-bottom: 24px;
+        }
+        .card h2 { font-size: 17px; margin-bottom: 16px; color: #1a1a2e; }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 14px;
+            margin-bottom: 8px;
+        }
+        .stat-box {
+            background: #f7fafc;
+            border-radius: 8px;
+            padding: 14px;
+            text-align: center;
+            border: 1px solid #e2e8f0;
+        }
+        .stat-box .number { font-size: 24px; font-weight: 700; color: #1a1a2e; }
+        .stat-box .label { font-size: 11px; color: #718096; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px; }
+
+        /* Photos */
+        .photos {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+            gap: 14px;
+        }
+        .photo-card {
+            background: #f7fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 12px;
+            position: relative;
+        }
+        .photo-card a {
+            display: block;
+            color: #1a1a2e;
+            text-decoration: none;
+            font-weight: 500;
+            margin-bottom: 4px;
+            word-break: break-all;
+            font-size: 13px;
+        }
+        .photo-card a:hover { color: #4c6ef5; text-decoration: underline; }
+        .photo-card img {
+            width: 100%;
+            height: 160px;
+            object-fit: cover;
+            border-radius: 6px;
+            margin-bottom: 8px;
+            background: #e2e8f0;
+        }
+        .photo-card .date { font-size: 11px; color: #a0aec0; }
+        .photo-card .label-text { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+        .photo-card form {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+        }
+        .photo-card .btn-del {
+            background: rgba(197, 48, 48, 0.9);
+            color: white;
+            border: none;
+            padding: 4px 8px;
+            font-size: 11px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .photo-card .btn-del:hover { background: #c53030; }
+        .empty { color: #a0aec0; font-size: 13px; font-style: italic; padding: 8px 0; }
+
+        /* Add photo form (admin) */
+        .add-photo-form {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            padding: 16px;
+            background: #ebf4ff;
+            border: 1px dashed #4c6ef5;
+            border-radius: 8px;
+            align-items: flex-end;
+            flex-wrap: wrap;
+        }
+        .add-photo-form .grow { flex: 1; min-width: 200px; }
+        .add-photo-form label { display: block; font-size: 11px; font-weight: 600; color: #4a5568; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .add-photo-form input {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+        .add-photo-form input:focus { outline: none; border-color: #4c6ef5; }
+        .add-photo-form button {
+            padding: 9px 20px;
+            background: #4c6ef5;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .add-photo-form button:hover { background: #3b5bdb; }
+
+        /* Phone table */
+        .table-wrapper { overflow-x: auto; border-radius: 8px; border: 1px solid #e2e8f0; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        thead th {
+            background: #1a1a2e;
+            color: white;
+            padding: 10px 12px;
+            text-align: left;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            white-space: nowrap;
+        }
+        tbody tr { border-bottom: 1px solid #edf2f7; }
+        tbody tr:hover { background: #f7fafc; }
+        tbody td { padding: 8px 12px; white-space: nowrap; }
+        tbody td.reasons { white-space: normal; font-size: 12px; color: #4a5568; max-width: 400px; }
+
+        .admin-badge {
+            display: inline-block;
+            padding: 3px 10px;
+            background: #38a169;
+            color: white;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+
+        /* Intro banner for vendors */
+        .intro-banner {
+            background: linear-gradient(135deg, #f8fafc 0%, #eef2ff 100%);
+            border: 1px solid #c7d2fe;
+            border-radius: 10px;
+            padding: 16px 20px;
+            margin-bottom: 20px;
+            display: flex;
+            gap: 14px;
+            align-items: flex-start;
+        }
+        .intro-banner .intro-icon {
+            flex-shrink: 0;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: #4c6ef5;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .intro-banner .intro-title {
+            font-size: 15px;
+            font-weight: 600;
+            color: #1a1a2e;
+            margin-bottom: 4px;
+        }
+        .intro-banner .intro-body {
+            font-size: 13px;
+            color: #4a5568;
+            line-height: 1.5;
+        }
+        .intro-banner .intro-body ul {
+            margin-top: 6px;
+            padding-left: 18px;
+        }
+        .intro-banner .intro-body li { margin-bottom: 2px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div>
+            <h1>Project {{ project.project_number }}</h1>
+            <div class="meta">
+                {{ project.vendor_name }} &middot; {{ project.return_count }} phones
+            </div>
+        </div>
+        <div class="header-actions">
+            {% if is_admin %}
+            <span class="admin-badge">ADMIN</span>
+            <form method="post" action="{{ url_for('admin_logout') }}" style="margin:0;">
+                <button type="submit">Log out</button>
+            </form>
+            {% else %}
+            <a href="{{ url_for('admin_login', next=request.path) }}">Admin</a>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="container">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, msg in messages %}
+        <div class="flash {{ category }}">{{ msg }}</div>
+        {% endfor %}
+        {% endwith %}
+
+        <!-- Vendor-facing intro -->
+        <div class="intro-banner">
+            <div class="intro-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            </div>
+            <div>
+                <div class="intro-title">Return candidates for project {{ project.project_number }}</div>
+                <div class="intro-body">
+                    This page lists the devices from this project that we believe qualify for return under {{ project.vendor_name }}'s RMA policy, along with the reason each one was flagged. Use it as a reference when reviewing the return request.
+                    <ul>
+                        <li><strong>Phones in Lot</strong> shows how many devices we're submitting for return.</li>
+                        <li><strong>Photos</strong> contains supporting images of the devices and packaging.</li>
+                        <li>The table at the bottom shows each device's WID, IMEI, invoice, grade, carrier, and the specific issue(s) flagged.</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- Stats -->
+        <div class="card">
+            <div class="stats">
+                <div class="stat-box">
+                    <div class="number">{{ project.return_count }}</div>
+                    <div class="label">Phones in Lot</div>
+                </div>
+                <div class="stat-box">
+                    <div class="number">{{ photos|length }}</div>
+                    <div class="label">Photos</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Photos -->
+        <div class="card">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+                <h2 style="margin:0;">Photos</h2>
+                {% if is_admin %}
+                <a href="{{ url_for('scan') }}?project={{ token }}"
+                   style="display:inline-flex; align-items:center; gap:6px; padding:8px 16px; background:#4c6ef5; color:white; border-radius:6px; text-decoration:none; font-size:13px; font-weight:600;">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="2"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="2" fill="currentColor"/></svg>
+                    Scan Photos
+                </a>
+                {% endif %}
+            </div>
+            {% if is_admin %}
+            <form method="post" action="{{ url_for('add_project_photo', token=token) }}" class="add-photo-form">
+                <div class="grow">
+                    <label>Paste Photo URL</label>
+                    <input type="url" name="photo_url" placeholder="https://..." required>
+                </div>
+                <div style="min-width:180px;">
+                    <label>Label (optional)</label>
+                    <input type="text" name="label" placeholder="e.g. Front of box">
+                </div>
+                <button type="submit">Add Photo</button>
+            </form>
+            {% endif %}
+
+            {% if photos %}
+            <div class="photos">
+                {% for p in photos %}
+                <div class="photo-card">
+                    {% if is_admin %}
+                    <form method="post" action="{{ url_for('delete_project_photo', token=token, photo_id=p.id) }}"
+                          onsubmit="return confirm('Remove this photo?');">
+                        <button type="submit" class="btn-del">Remove</button>
+                    </form>
+                    {% endif %}
+                    {% if p.photo_url.lower().endswith('.jpg')
+                         or p.photo_url.lower().endswith('.jpeg')
+                         or p.photo_url.lower().endswith('.png')
+                         or p.photo_url.lower().endswith('.webp')
+                         or p.photo_url.lower().endswith('.gif') %}
+                    <a href="{{ p.photo_url }}" target="_blank" rel="noopener">
+                        <img src="{{ p.photo_url }}" alt="{{ p.label or 'Photo' }}" loading="lazy">
+                    </a>
+                    {% endif %}
+                    {% if p.label %}<div class="label-text">{{ p.label }}</div>{% endif %}
+                    <a href="{{ p.photo_url }}" target="_blank" rel="noopener">{{ p.photo_url }}</a>
+                    <div class="date">Added {{ p.created_at.strftime('%b %d, %Y') if p.created_at else '' }}</div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="empty">
+                {% if is_admin %}No photos yet — add one above.{% else %}No photos have been added yet.{% endif %}
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Phone list -->
+        <div class="card">
+            <h2>Phones in This Lot ({{ phones|length }})</h2>
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>WID</th>
+                            <th>IMEI</th>
+                            <th>Invoice #</th>
+                            <th>Model</th>
+                            <th>Grade</th>
+                            <th>Carrier</th>
+                            {% if phones and phones[0].detail_lock %}<th>Detail Lock</th>{% endif %}
+                            <th>Reason(s)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for ph in phones %}
+                        <tr>
+                            <td style="font-family:monospace;">{{ ph.wid or '' }}</td>
+                            <td style="font-family:monospace;">{{ ph.imei or '' }}</td>
+                            <td style="font-family:monospace;">{{ ph.invoice_number or '' }}</td>
+                            <td>{{ ph.brand or '' }} {{ ph.model or '' }}</td>
+                            <td>{{ ph.grade or '' }}</td>
+                            <td>
+                                {{ ph.carrier or '' }}
+                                {% if ph.carrier_gsx %} <span style="color:#718096;">(GSX: {{ ph.carrier_gsx }})</span>{% endif %}
+                            </td>
+                            {% if phones and phones[0].detail_lock %}<td>{{ ph.detail_lock or '' }}</td>{% endif %}
+                            <td class="reasons">{{ ph.reasons or '' }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,92 @@
+#,Code,Description,Hyla Reasoning,Mapping Notes
+1,-- UNKNOWN --,,N/A,No code to map
+2,,- (blank),N/A,Blank entry
+3,R1,Discoloration,DISPLAY,Screen discoloration is a display defect
+4,R2,Spots,DISPLAY,Screen spots are a display defect
+5,R3,Static,DISPLAY,Static on screen is a display defect
+6,R4,Horizontal Line/s,DISPLAY,Horizontal lines are a display defect
+7,R5,BER,FUNCTIONAL,BER (Bit Error Rate) = general functional issue
+8,R6,Bent,COSMETIC,Bent housing is a cosmetic/physical defect
+9,R7,Flex Cable Torn,FUNCTIONAL,Flex cable = internal hardware failure
+10,R8,Can't connect to test,FUNCTIONAL,Connection test failure = general functional
+11,R9,Flickering,DISPLAY,Screen flickering is a display defect
+13,M01,Powering Up,NO_POWER,Power-up failure maps to NO_POWER
+14,M02,LCD,DISPLAY,LCD issue maps to DISPLAY
+15,M03,Touchscreen,DIGITIZER,Touchscreen = DIGITIZER
+16,M04,Charge Port,FUNCTIONAL,Charge port = hardware functional issue
+17,M05,Power Button,FUNCTIONAL,Power button = hardware functional issue
+18,M06,SIM Card Port,FUNCTIONAL,SIM card port = hardware functional issue
+19,M07,Test Call,FUNCTIONAL,Call test failure = general functional
+20,M08,Microphone,SPEAKER/MIC,Microphone issue
+21,M09,Battery,NO_POWER,Battery issue maps to NO_POWER
+22,M11,Back Camera,VIDEO/CAMERA,Back camera issue
+23,M12,Loud Speaker,SPEAKER/MIC,Loud speaker issue
+24,M13,Volume Up/Down,FUNCTIONAL,Volume buttons = hardware functional
+25,M14,Home Button,FUNCTIONAL,Home button = hardware functional
+26,M15,Liquid Damage,FUNCTIONAL,Liquid damage = general functional failure
+27,M16,Other,FUNCTIONAL,Catch-all 'Other' = FUNCTIONAL
+28,M17,Touch ID/ Face ID,FACE/TOUCH ID,Biometric authentication issue
+29,M18,Front Camera,VIDEO/CAMERA,Front camera issue
+30,M19,Earpiece Speaker,SPEAKER/MIC,Earpiece speaker issue
+31,M20,WiFi/Bluetooth,BTOOTH/WIFI/GPS,WiFi/Bluetooth connectivity
+32,M21,Menu Keys,FUNCTIONAL,Menu keys = hardware functional
+33,M22,IMEI Issues,COUNTERFEIT,IMEI issues often indicate counterfeit/tampered device
+34,M23,Ringer On/Off,FUNCTIONAL,Ringer switch = hardware functional
+35,M24,Vibrator,FUNCTIONAL,Vibrator motor = hardware functional
+36,M25,Proximity Sensor,FUNCTIONAL,Proximity sensor = hardware functional
+37,M26,Wireless Charging,FUNCTIONAL,Wireless charging = hardware functional
+38,M27,NFC,FUNCTIONAL,NFC = hardware functional
+39,M28,3D Touch,DIGITIZER,3D Touch is a digitizer/touch function
+40,M29,Gyro/Accel,FUNCTIONAL,Gyroscope/Accelerometer = hardware functional
+41,M30,Audio Jack,SPEAKER/MIC,Audio jack relates to audio output
+42,M31,Activation Lock,ACTIVATION_LOCK,Activation Lock maps directly
+43,M32,Blacklisted,FINANCED,Blacklisted = typically unpaid/financed device
+44,M33,Jailbroken,FUNCTIONAL,Jailbroken = software/functional issue
+45,M34,Flooded (Polishing),COSMETIC,Flooded polishing = cosmetic process
+46,M35,Demo Mode Removal,FUNCTIONAL,Demo mode = software/functional issue
+47,LCD-L0,"No Burned Images, perfect",DISPLAY,LCD burn level — no burn = DISPLAY (grade)
+48,LCD-L1,Almost Unnoticeable Burned Images,DISPLAY,LCD burn level = DISPLAY
+49,LCD-L2,Very Light Burn Images,DISPLAY,LCD burn level = DISPLAY
+50,LCD-L3,Medium Burn Images,DISPLAY,LCD burn level = DISPLAY
+51,LCD-L4,Heavy Burn Image,DISPLAY,LCD burn level = DISPLAY
+52,LCD-L5,Extreme Burn Image,DISPLAY,LCD burn level = DISPLAY
+53,LCD-F01,Visually Bad,DISPLAY,LCD fail — visually bad = DISPLAY
+55,LCD-F03,Bleeded,DISPLAY,LCD bleed = DISPLAY
+56,LCD-F04,Line(s),DISPLAY,LCD line defect = DISPLAY
+57,LCD-F05,Water / 3D Damage / Large White Areas,DISPLAY,LCD water/3D damage = DISPLAY
+58,LCD-F06,Flickering / Flashing Only,DISPLAY,LCD flickering = DISPLAY
+59,LCD-F07,Heavy Discoloration,DISPLAY,LCD heavy discoloration = DISPLAY
+60,LCD-F08,Multiple / Medium / Large Pressure Point(s),DISPLAY,LCD pressure points = DISPLAY
+61,LCD-F09,Heavy Brown Spots,DISPLAY,LCD brown spots = DISPLAY
+62,LCD-F10,Heavy Light Leakage,DISPLAY,LCD light leakage = DISPLAY
+63,LCD-F11,Other (Manager list problem in Tech Notes),DISPLAY,LCD other fail = DISPLAY
+64,LCD-F12,LCD Main,DISPLAY,LCD Main = DISPLAY
+65,LCD-F13,LCD Front,DISPLAY,LCD Front = DISPLAY
+66,LCD-F14,LCD Main/Front,DISPLAY,LCD Main/Front = DISPLAY
+67,LCD-P01,Other (Manager list flaw in Tech Notes),DISPLAY,LCD pass other = DISPLAY
+68,LCD-P02,Minor Light Spots/Areas,DISPLAY,LCD minor spots = DISPLAY
+69,LCD-P03,Minor Discoloration,DISPLAY,LCD minor discoloration = DISPLAY
+70,LCD-P04,Light Leakage,DISPLAY,LCD light leakage = DISPLAY
+71,LCD-PP1,Pen-Like Spec,DISPLAY,LCD pen-like spec = DISPLAY
+72,LCD-PP2,Microscopic Pressure Point,DISPLAY,LCD microscopic pressure = DISPLAY
+73,LCD-PP3,Small Pressure Point,DISPLAY,LCD small pressure point = DISPLAY
+74,PHY-F01,Heavy Delamination,COSMETIC,Heavy delamination = physical/cosmetic
+75,PHY-F02,Excessive Wear/Usage,COSMETIC,Excessive wear = cosmetic
+76,PHY-F03,Missing Cover,COSMETIC,Missing cover = cosmetic
+77,PHY-F04,Excessive Lifted Screen,COSMETIC,Excessive lifted screen = cosmetic
+78,PHY-F05,Bent Device,COSMETIC,Bent device = cosmetic
+79,PHY-F09,Other Fail (Manager list problem in Tech Notes),COSMETIC,Other physical fail = cosmetic
+80,PHY-P01,Minor Delamination,COSMETIC,Minor delamination = cosmetic
+81,PHY-P02,Minor Wear/Usage,SCRATCHES,Minor wear/usage = scratches/cosmetic wear
+82,PHY-P03,Minor Lifted Screen,COSMETIC,Minor lifted screen = cosmetic
+83,PHY-P09,Other Pass (Manager list problem in Tech Notes),COSMETIC,Other physical pass = cosmetic
+84,PHY-P11,Battery Door Replaced,COSMETIC,Battery door replaced = cosmetic/physical
+85,PHY-P12,Camera Lens Replaced,VIDEO/CAMERA,Camera lens replaced = camera-related
+86,PHY-P13,Chrome Side Polishing,COSMETIC,Chrome side polishing = cosmetic
+87,PHY-P14,Front Glass Polishing (In-House),COSMETIC,Front glass polishing = cosmetic
+88,PHY-P15,Glass Polishing (Outsourced),COSMETIC,Glass polishing outsourced = cosmetic
+89,PHY-P16,Sim Tray Replaced,FUNCTIONAL,Sim tray replaced = functional hardware
+90,PHY-P17,Stylus Replaced,COSMETIC,Stylus replaced = cosmetic/accessory
+91,FUNC P01,Loud Speaker Low Volume,SPEAKER/MIC,Loud speaker low volume = speaker issue
+92,FUNC P02,Front Mic Low Volume,SPEAKER/MIC,Front mic low volume = mic issue
+93,FUNC P03,Bottom Mic Low Volume,SPEAKER/MIC,Bottom mic low volume = mic issue

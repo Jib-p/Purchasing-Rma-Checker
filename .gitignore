@@ -1,0 +1,48 @@
+# Environment / secrets — NEVER commit
+.env
+.env.*
+!.env.example
+*.secret
+*.pem
+*.key
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+.pytest_cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Office lock files
+~$*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.code-workspace
+
+# Flask uploads (temp files — don't commit)
+uploads/*.xlsx
+uploads/*.xls
+uploads/*.csv
+
+# Scanner-captured photos (stored per invoice, not source material)
+uploads/photos/
+
+# Local data exports / generated reports — never commit
+# (the app reads its required guidelines from `Vendor RMA Guidelines.xlsx`
+#  and `RMA_Codes.csv`, which are explicitly un-ignored below)
+*.csv
+*.xlsx
+*.xls
+*.docx
+!Vendor RMA Guidelines.xlsx
+!RMA_Codes.csv

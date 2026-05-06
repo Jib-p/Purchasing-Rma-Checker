@@ -1,0 +1,9 @@
+flask
+pandas
+openpyxl
+requests
+python-dotenv
+PyMySQL
+SQLAlchemy
+cryptography
+pyopenssl

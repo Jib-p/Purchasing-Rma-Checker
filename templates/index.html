@@ -1,0 +1,2069 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Device RMA APP</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f0f2f5;
+            color: #1a1a2e;
+            min-height: 100vh;
+        }
+        .header {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: white;
+            padding: 24px 40px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+        .header h1 { font-size: 24px; font-weight: 600; }
+        .header p { font-size: 14px; opacity: 0.7; margin-top: 4px; }
+
+        .container { max-width: 1400px; margin: 0 auto; padding: 24px 40px; }
+
+        /* Flash messages */
+        .flash { padding: 12px 20px; border-radius: 8px; margin-bottom: 16px; font-size: 14px; }
+        .flash.error { background: #fde8e8; color: #c53030; border: 1px solid #feb2b2; }
+        .flash.warning { background: #fefcbf; color: #975a16; border: 1px solid #f6e05e; }
+        .flash.success { background: #e6ffed; color: #276749; border: 1px solid #9ae6b4; }
+
+        /* Upload card */
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 28px 32px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+            margin-bottom: 24px;
+        }
+        .card h2 { font-size: 18px; margin-bottom: 20px; color: #1a1a2e; }
+
+        /* Two-column layout for upload card */
+        .upload-layout {
+            display: flex;
+            gap: 28px;
+            align-items: flex-start;
+        }
+        .upload-left { flex: 1; min-width: 0; }
+        .upload-right {
+            width: 380px;
+            flex-shrink: 0;
+            display: none;
+        }
+        .upload-right.visible { display: block; }
+
+        .form-row {
+            display: flex;
+            gap: 20px;
+            align-items: flex-end;
+            flex-wrap: wrap;
+        }
+        .form-group { display: flex; flex-direction: column; gap: 6px; }
+        .form-group label {
+            font-size: 13px;
+            font-weight: 600;
+            color: #4a5568;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .form-group select, .form-group input[type="file"] {
+            padding: 10px 14px;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            font-size: 14px;
+            background: white;
+            min-width: 220px;
+        }
+        .form-group select:focus, .form-group input[type="file"]:focus {
+            outline: none;
+            border-color: #4c6ef5;
+            box-shadow: 0 0 0 3px rgba(76,110,245,0.1);
+        }
+
+        .btn {
+            padding: 10px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .btn-primary {
+            background: #4c6ef5;
+            color: white;
+        }
+        .btn-primary:hover { background: #3b5bdb; }
+        .btn-primary:disabled { background: #a5b4fc; cursor: not-allowed; }
+
+        .btn-green {
+            background: #38a169;
+            color: white;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .btn-green:hover { background: #2f855a; }
+
+        /* Loading spinner */
+        .spinner { display: none; }
+        .loading .spinner { display: inline-block; margin-left: 8px; }
+        .loading .btn-text { display: none; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .spinner::after {
+            content: '';
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+            vertical-align: middle;
+        }
+
+        /* Summary stats */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+        .stat-box {
+            background: #f7fafc;
+            border-radius: 8px;
+            padding: 16px;
+            text-align: center;
+            border: 1px solid #e2e8f0;
+        }
+        .stat-box .number {
+            font-size: 28px;
+            font-weight: 700;
+            color: #1a1a2e;
+        }
+        .stat-box .label {
+            font-size: 12px;
+            color: #718096;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-top: 4px;
+        }
+        .stat-box.highlight { background: #ebf4ff; border-color: #4c6ef5; }
+        .stat-box.highlight .number { color: #4c6ef5; }
+        .stat-box.warning-stat { background: #fffaf0; border-color: #ed8936; }
+        .stat-box.warning-stat .number { color: #dd6b20; }
+
+        /* Results table */
+        .table-wrapper {
+            overflow-x: auto;
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        thead th {
+            background: #1a1a2e;
+            color: white;
+            padding: 10px 12px;
+            text-align: left;
+            font-weight: 600;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            white-space: nowrap;
+            position: sticky;
+            top: 0;
+        }
+        tbody tr { border-bottom: 1px solid #edf2f7; }
+        tbody tr:hover { background: #f7fafc; }
+        tbody td {
+            padding: 8px 12px;
+            white-space: nowrap;
+            max-width: 300px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        tbody td:last-child {
+            white-space: normal;
+            max-width: 400px;
+        }
+
+        /* Reason tags */
+        .reason-tag {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 500;
+            margin: 1px 2px;
+        }
+        .reason-qc { background: #fed7d7; color: #c53030; }
+        .reason-condition { background: #fefcbf; color: #975a16; }
+        .reason-carrier { background: #bee3f8; color: #2b6cb0; }
+        .reason-battery { background: #e9d8fd; color: #6b46c1; }
+        .reason-not-sure { background: #fde8c8; color: #9c4221; border: 1px dashed #dd6b20; }
+        .stat-box.not-sure-stat { background: #fffaf0; border-color: #dd6b20; border-style: dashed; }
+        .stat-box.not-sure-stat .number { color: #c05621; }
+
+        /* RMA'd rows — always hidden, wins over search-filter inline display */
+        tbody tr.rmad-hidden { display: none !important; }
+
+        /* Threshold row coloring */
+        tbody tr.threshold-met { background-color: rgba(56, 161, 105, 0.10); }
+        tbody tr.threshold-not-met { background-color: rgba(229, 62, 62, 0.10); }
+        tbody tr.threshold-met:hover { background-color: rgba(56, 161, 105, 0.20); }
+        tbody tr.threshold-not-met:hover { background-color: rgba(229, 62, 62, 0.20); }
+        /* Not-sure-only rows: phone only has "Not Sure / Need to Test" flags
+           (e.g. Display Spots) — yellow tint to mark uncertainty. */
+        tbody tr.row-not-sure-only { background-color: rgba(246, 224, 94, 0.22); }
+        tbody tr.row-not-sure-only:hover { background-color: rgba(246, 224, 94, 0.40); }
+        /* LCD mismatch: Condition column and Physical QC LCD disagree. */
+        tbody tr.lcd-mismatch { background-color: rgba(99, 179, 237, 0.22) !important; }
+        tbody tr.lcd-mismatch:hover { background-color: rgba(99, 179, 237, 0.40) !important; }
+        .stat-box.threshold-stat { background: #f0fff4; border-color: #38a169; }
+        .stat-box.threshold-stat .number { color: #276749; }
+        .vendor-desc-bar {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: #f0f9ff;
+            border: 1px solid #bae6fd;
+            border-radius: 8px;
+            padding: 10px 16px;
+            margin-bottom: 16px;
+            font-size: 13px;
+            color: #0c4a6e;
+        }
+        .vendor-desc-bar svg { flex-shrink: 0; color: #0284c7; }
+        .vendor-desc-bar strong { margin-right: 4px; }
+
+        .info-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        .info-bar .meta { font-size: 13px; color: #718096; }
+
+        /* Search/filter */
+        .filter-bar {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+        .filter-bar input {
+            padding: 8px 14px;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            font-size: 14px;
+            width: 300px;
+        }
+        .filter-bar input:focus {
+            outline: none;
+            border-color: #4c6ef5;
+        }
+        .filter-bar select {
+            padding: 8px 14px;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+
+        .table-scroll { max-height: 600px; overflow-y: auto; }
+
+        /* Inline invoice panel (right side of upload card) */
+        .invoice-side {
+            background: #f7fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 14px 16px;
+        }
+        .invoice-side .side-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .invoice-side .side-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: #1a1a2e;
+        }
+        .invoice-side .side-range {
+            font-size: 11px;
+            color: #a0aec0;
+        }
+        .invoice-side .inv-list {
+            max-height: 220px;
+            overflow-y: auto;
+        }
+        .invoice-side .inv-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr auto;
+            gap: 8px;
+            align-items: center;
+            padding: 5px 8px;
+            font-size: 13px;
+            border-radius: 4px;
+        }
+        .invoice-side .inv-row:nth-child(even) { background: #edf2f7; }
+        .invoice-side .inv-num { font-weight: 500; color: #1a1a2e; font-family: monospace; }
+        .invoice-side .inv-proj {
+            color: #4c6ef5;
+            font-family: monospace;
+            font-size: 12px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .invoice-side .inv-proj.empty { color: #cbd5e0; font-style: italic; }
+        .invoice-side .inv-date { color: #718096; font-size: 12px; text-align: right; }
+        .invoice-side .inv-row-head {
+            display: grid;
+            grid-template-columns: 1fr 1fr auto;
+            gap: 8px;
+            padding: 2px 8px 6px;
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: #a0aec0;
+            border-bottom: 1px solid #e2e8f0;
+            margin-bottom: 4px;
+        }
+        .invoice-side .inv-row-head .inv-date { text-align: right; }
+        .invoice-side .side-footer .copy-btn-row {
+            display: flex;
+            gap: 8px;
+        }
+        .invoice-side .side-footer .copy-btn-row .btn-copy { flex: 1; }
+        .invoice-side .inv-empty {
+            font-size: 13px;
+            color: #a0aec0;
+            font-style: italic;
+            padding: 8px 0;
+        }
+        .invoice-side .loading-text {
+            font-size: 13px;
+            color: #718096;
+            padding: 8px 0;
+        }
+        .invoice-side .inv-count {
+            padding: 6px 0 0;
+            font-size: 12px;
+            color: #a0aec0;
+            border-top: 1px solid #e2e8f0;
+            margin-top: 4px;
+        }
+        .invoice-side .side-footer {
+            display: none;
+            padding-top: 10px;
+            border-top: 1px solid #e2e8f0;
+            margin-top: 8px;
+        }
+        .btn-copy {
+            padding: 6px 14px;
+            font-size: 12px;
+            font-weight: 600;
+            border: 1px solid #4c6ef5;
+            background: white;
+            color: #4c6ef5;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.15s;
+            width: 100%;
+        }
+        .btn-copy:hover { background: #4c6ef5; color: white; }
+        .btn-copy.copied { background: #38a169; border-color: #38a169; color: white; cursor: default; }
+
+        /* Sortable headers */
+        thead th.sortable { cursor: pointer; user-select: none; }
+        thead th.sortable:hover { background: #2d3748; }
+        thead th.sortable::after {
+            content: '';
+            display: inline-block;
+            margin-left: 6px;
+            opacity: 0.35;
+            border-left: 4px solid transparent;
+            border-right: 4px solid transparent;
+            border-bottom: 5px solid currentColor;
+            vertical-align: middle;
+        }
+        thead th.sort-asc::after { opacity: 1; }
+        thead th.sort-desc::after {
+            border-bottom: none;
+            border-top: 5px solid currentColor;
+            opacity: 1;
+        }
+
+        /* Click-to-copy cells */
+        td.copyable {
+            cursor: pointer;
+            position: relative;
+            font-family: monospace;
+        }
+        td.copyable:hover { background: #ebf4ff !important; color: #2b6cb0; }
+        td.copyable.just-copied { background: #c6f6d5 !important; color: #22543d; }
+
+        /* Lock mismatch highlight */
+        tbody tr.lock-mismatch {
+            background-color: rgba(237, 137, 54, 0.18) !important;
+            border-left: 3px solid #dd6b20;
+        }
+        tbody tr.lock-mismatch:hover { background-color: rgba(237, 137, 54, 0.28) !important; }
+        .mismatch-badge {
+            display: inline-block;
+            padding: 2px 6px;
+            background: #feebc8;
+            color: #9c4221;
+            border: 1px solid #f6ad55;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            margin-left: 6px;
+        }
+
+        /* Help tooltips (? chip next to labels) */
+        .help {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            background: #e2e8f0;
+            color: #4a5568;
+            font-size: 10px;
+            font-weight: 700;
+            margin-left: 5px;
+            cursor: help;
+            position: relative;
+            text-transform: none;
+            letter-spacing: 0;
+            vertical-align: middle;
+        }
+        .help:hover { background: #4c6ef5; color: white; }
+        .help::after {
+            content: attr(data-tip);
+            position: absolute;
+            bottom: calc(100% + 8px);
+            left: 50%;
+            transform: translateX(-50%);
+            background: #1a1a2e;
+            color: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 400;
+            letter-spacing: 0;
+            line-height: 1.4;
+            white-space: normal;
+            width: 260px;
+            text-align: left;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.15s;
+            z-index: 100;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+        }
+        .help::before {
+            content: '';
+            position: absolute;
+            bottom: calc(100% + 2px);
+            left: 50%;
+            transform: translateX(-50%);
+            border: 6px solid transparent;
+            border-top-color: #1a1a2e;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.15s;
+            z-index: 100;
+        }
+        .help:hover::after, .help:hover::before { opacity: 1; }
+
+        /* Reason tag legend */
+        .tag-legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px 16px;
+            align-items: center;
+            padding: 12px 14px;
+            background: #f7fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            margin-bottom: 14px;
+            font-size: 12px;
+        }
+        .tag-legend .legend-title {
+            font-size: 11px;
+            font-weight: 700;
+            color: #4a5568;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-right: 4px;
+        }
+        .tag-legend .legend-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            color: #4a5568;
+        }
+        .tag-legend .swatch {
+            display: inline-block;
+            width: 34px;
+            height: 18px;
+            border-radius: 4px;
+        }
+
+        /* Next-steps card (after results) */
+        .next-steps {
+            background: #f0fff4;
+            border: 1px solid #9ae6b4;
+        }
+        .next-steps h2 { color: #276749; }
+        .next-steps .lead {
+            font-size: 13px;
+            color: #22543d;
+            margin-bottom: 14px;
+        }
+        .next-steps-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 12px;
+        }
+        .next-steps-grid .ns-item {
+            background: white;
+            border: 1px solid #c6f6d5;
+            border-radius: 8px;
+            padding: 12px 14px;
+        }
+        .next-steps-grid .ns-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: #276749;
+            margin-bottom: 4px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .next-steps-grid .ns-body {
+            font-size: 12px;
+            color: #2f855a;
+            line-height: 1.45;
+        }
+
+        /* Grade rules collapsible */
+        details.grade-rules > summary {
+            cursor: pointer;
+            font-size: 15px;
+            font-weight: 600;
+            color: #1a1a2e;
+            padding: 6px 0;
+            list-style: none;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        details.grade-rules > summary::-webkit-details-marker { display: none; }
+        details.grade-rules > summary::before {
+            content: '▶';
+            font-size: 10px;
+            color: #718096;
+            transition: transform 0.15s;
+        }
+        details.grade-rules[open] > summary::before { transform: rotate(90deg); }
+        details.grade-rules .rules-lead {
+            font-size: 12px;
+            color: #718096;
+            margin: 10px 0 14px;
+            line-height: 1.5;
+        }
+        details.grade-rules .rules-key {
+            display: inline-flex;
+            gap: 12px;
+            margin-left: 8px;
+            font-size: 12px;
+            font-weight: 400;
+            color: #718096;
+        }
+        details.grade-rules .rules-key span { display: inline-flex; align-items: center; gap: 4px; }
+
+        /* Toast */
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%) translateY(12px);
+            background: #1a1a2e;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 500;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.15s, transform 0.15s;
+            z-index: 1000;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        }
+        .toast.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div style="flex:1;">
+            <h1>Return Candidate Finder</h1>
+            <p>Upload an ICE report to identify devices eligible for return</p>
+        </div>
+        <a href="https://mannapov.icedb.com/iceq/iceq_detail_report_view.php" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:6px;padding:9px 18px;background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.25);border-radius:8px;color:white;text-decoration:none;font-size:13px;font-weight:600;transition:background 0.15s;" onmouseover="this.style.background='rgba(255,255,255,0.2)'" onmouseout="this.style.background='rgba(255,255,255,0.12)'">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            ICE Q Report
+        </a>
+        <a href="https://mannapov.icedb.com/index.php?area=processing&mode=downloadreport" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:6px;padding:9px 18px;background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.25);border-radius:8px;color:white;text-decoration:none;font-size:13px;font-weight:600;transition:background 0.15s;" onmouseover="this.style.background='rgba(255,255,255,0.2)'" onmouseout="this.style.background='rgba(255,255,255,0.12)'">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Download Report
+        </a>
+        <a href="/scan" style="display:inline-flex;align-items:center;gap:6px;padding:9px 18px;background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.25);border-radius:8px;color:white;text-decoration:none;font-size:13px;font-weight:600;transition:background 0.15s;" onmouseover="this.style.background='rgba(255,255,255,0.2)'" onmouseout="this.style.background='rgba(255,255,255,0.12)'">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="2"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="2" fill="currentColor"/></svg>
+            Phone Scanner
+        </a>
+        {% if is_admin %}
+        <span style="padding:6px 12px;background:#38a169;border-radius:6px;font-size:12px;font-weight:600;letter-spacing:0.5px;">ADMIN</span>
+        <form method="post" action="{{ url_for('admin_logout') }}" style="margin:0;">
+            <button type="submit" style="padding:9px 14px;background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.25);border-radius:8px;color:white;font-size:13px;font-weight:600;cursor:pointer;">Log out</button>
+        </form>
+        {% else %}
+        <a href="{{ url_for('admin_login') }}" style="padding:9px 14px;background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.25);border-radius:8px;color:white;text-decoration:none;font-size:13px;font-weight:600;">Admin</a>
+        {% endif %}
+    </div>
+
+    <div class="container">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+            <div class="flash {{ category }}">{{ message }}</div>
+            {% endfor %}
+        {% endif %}
+        {% endwith %}
+
+        <!-- Upload Card with inline invoice panel -->
+        <div class="card">
+            <h2>Upload ICE Report</h2>
+            <div class="upload-layout">
+                <div class="upload-left">
+                    <form action="/process" method="post" enctype="multipart/form-data" id="uploadForm">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>
+                                    Vendor
+                                    <span class="help" data-tip="Pick who you're returning devices to. Each vendor has its own rules and lookback window — e.g. HYLA checks the last 7 days of invoices, Verizon 30."></span>
+                                </label>
+                                <select name="vendor" id="vendorSelect" required>
+                                    <option value="">-- Select Vendor --</option>
+                                    <option value="all" {% if selected_vendor == 'all' %}selected{% endif %}>
+                                        All Vendors (Combined Scan)
+                                    </option>
+                                    {% for key, v in vendors.items() %}
+                                    {% if not v.get('disabled') %}
+                                    <option value="{{ key }}" {% if selected_vendor == key %}selected{% endif %}>
+                                        {{ v.name }} ({{ v.lookback_days }}-day lookback)
+                                    </option>
+                                    {% endif %}
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>
+                                    ICE Report (.xlsx)
+                                    <span class="help" data-tip="Export the inventory spreadsheet from ICE (Download Report button above). The scanner only looks at invoices received in the vendor's lookback window."></span>
+                                </label>
+                                <input type="file" name="ice_file" accept=".xlsx,.xls" required>
+                            </div>
+                            <div class="form-group">
+                                <label>
+                                    ICE Detail Report (.csv)
+                                    <span style="font-weight:400;text-transform:none;color:#a0aec0;">— optional</span>
+                                    <span class="help" data-tip="Optional. Multi-retest lock-status report. When attached, it overrides the Carrier/GSX columns with real test results — the most accurate source for carrier-lock disputes."></span>
+                                </label>
+                                <input type="file" name="detail_file" accept=".csv">
+                            </div>
+                            <button type="submit" class="btn btn-primary" id="submitBtn">
+                                <span class="btn-text">Process Report</span>
+                                <span class="spinner"></span>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+                <div class="upload-right" id="invoicePanel">
+                    <div class="invoice-side">
+                        <div class="side-header">
+                            <span class="side-title" id="sidePanelTitle">Invoices</span>
+                            <span class="side-range" id="sidePanelRange"></span>
+                        </div>
+                        <div class="inv-list" id="sidePanelList">
+                            <div class="loading-text">Loading...</div>
+                        </div>
+                        <div class="side-footer" id="sidePanelFooter">
+                            <div class="copy-btn-row">
+                                <button class="btn-copy" onclick="copyInvoices()" id="copyBtn">
+                                    Copy All Invoice #s
+                                </button>
+                                <button class="btn-copy" onclick="copyProjects()" id="copyProjBtn">
+                                    Copy All Project #s
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- RMA'd Devices Card -->
+        <div class="card" id="rmadCard">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:14px; gap:16px; flex-wrap:wrap;">
+                <h2 style="margin:0;">
+                    RMA'd Devices
+                    <span id="rmadVendorLabel" style="font-size:14px; font-weight:500; color:#4a5568; margin-left:6px;"></span>
+                    <span id="rmadCount" style="font-size:13px; font-weight:500; color:#718096; margin-left:8px;"></span>
+                </h2>
+                <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                    <form id="rmadForm" style="display:flex; gap:10px; align-items:center; margin:0;">
+                        <input type="file" name="rmad_file" id="rmadFile"
+                               accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+                               style="font-size:13px; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px; background:white;" required>
+                        <button type="submit" class="btn btn-primary" id="rmadUploadBtn" style="padding:8px 18px; font-size:13px;">
+                            Upload Request Form
+                        </button>
+                    </form>
+                    <button type="button" class="btn-copy" id="rmadClearBtn" style="width:auto; padding:7px 14px;">Clear</button>
+                </div>
+            </div>
+            <div id="rmadStatus" style="font-size:13px; margin-bottom:10px; min-height:18px;"></div>
+            <div id="rmadList" style="padding:10px 14px; border:1px solid #e2e8f0; border-radius:8px; background:#f7fafc; font-family:monospace; font-size:13px; line-height:1.8; min-height:60px; max-height:260px; overflow-y:auto;">
+                <span style="color:#a0aec0; font-style:italic; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+                    Select a vendor above to see its RMA'd devices.
+                </span>
+            </div>
+        </div>
+
+        {% if summary %}
+        <!-- Summary Card -->
+        <div class="card">
+            <div class="info-bar">
+                <h2>Results: {{ summary.vendor_name }}</h2>
+                <div>
+                    <span class="meta">
+                        Scanned {{ summary.total_scanned }} devices from {{ summary.invoices_found }} invoices
+                        (last {{ summary.lookback_days }} days)
+                    </span>
+                    &nbsp;
+                    <a href="/download/{{ download_file }}" class="btn btn-green">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        Download All
+                    </a>
+                    {% if selected_vendor == 'verizon' %}
+                    &nbsp;
+                    <a href="/rmad/generate/{{ selected_vendor }}" class="btn btn-primary">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+                        Generate Request Form
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+
+            {% if summary.vendor_description %}
+            <div class="vendor-desc-bar">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                <span><strong>Where to source / return:</strong> {{ summary.vendor_description }}</span>
+            </div>
+            {% endif %}
+
+            <div class="stats-grid">
+                <div class="stat-box highlight">
+                    <div class="number" data-stat="total">{{ summary.total }}</div>
+                    <div class="label">Return Candidates</div>
+                </div>
+                <div class="stat-box warning-stat">
+                    <div class="number" data-stat="qc">{{ summary.qc }}</div>
+                    <div class="label">QC Issues</div>
+                </div>
+                <div class="stat-box">
+                    <div class="number" data-stat="condition">{{ summary.condition }}</div>
+                    <div class="label">Condition Flagged</div>
+                </div>
+                <div class="stat-box">
+                    <div class="number" data-stat="battery">{{ summary.battery }}</div>
+                    <div class="label">Low Battery</div>
+                </div>
+                {% if summary.id_lock %}
+                <div class="stat-box warning-stat">
+                    <div class="number" data-stat="id_lock">{{ summary.id_lock }}</div>
+                    <div class="label">ID/MDM Lock</div>
+                </div>
+                {% endif %}
+                {% if summary.not_sure %}
+                <div class="stat-box not-sure-stat">
+                    <div class="number" data-stat="not_sure">{{ summary.not_sure }}</div>
+                    <div class="label">Not Sure / Need to Test</div>
+                </div>
+                {% endif %}
+                {% if summary.vendor_threshold is not none %}
+                <div class="stat-box threshold-stat">
+                    {% if summary.vendor_threshold == 0 %}
+                    <div class="number">None</div>
+                    <div class="label">No Threshold (All Eligible)</div>
+                    {% else %}
+                    <div class="number">&gt; {{ summary.vendor_threshold }}%</div>
+                    <div class="label">Return Threshold</div>
+                    {% endif %}
+                </div>
+                {% endif %}
+                {% if summary.has_carrier_check %}
+                <div class="stat-box">
+                    <div class="number" data-stat="gsx_locked">{{ summary.gsx_locked }}</div>
+                    <div class="label">GSX Locked</div>
+                </div>
+                <div class="stat-box">
+                    <div class="number" data-stat="carrier_no_gsx">{{ summary.carrier_no_gsx }}</div>
+                    <div class="label">Carrier Locked</div>
+                </div>
+                {% endif %}
+                {% if summary.detail_used %}
+                <div class="stat-box highlight">
+                    <div class="number">{{ summary.detail_matched }}</div>
+                    <div class="label">Matched in Detail Report</div>
+                </div>
+                <div class="stat-box warning-stat">
+                    <div class="number">{{ summary.detail_locked }}</div>
+                    <div class="label">Locked (Detail Report)</div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        {% if summary.project_links %}
+        <!-- Shareable Project Links Card -->
+        <div class="card">
+            <h2 style="margin-bottom:8px;">Shareable Project Links</h2>
+            <div style="font-size:13px; color:#718096; margin-bottom:16px;">
+                Each project has its own public page — send the link to vendors so they can see the phones and attached photos for that lot. Only admins can add / remove photos.
+            </div>
+            <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap:12px;">
+                {% for link in summary.project_links %}
+                <div style="border:1px solid #e2e8f0; border-radius:8px; padding:14px 16px; background:#f7fafc;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                        <div style="font-weight:600; color:#1a1a2e; font-family:monospace;">{{ link.project_number }}</div>
+                        <div style="font-size:11px; color:#718096;">
+                            {{ link.return_count }} phone{{ 's' if link.return_count != 1 else '' }}
+                        </div>
+                    </div>
+                    <input type="text" readonly value="{{ link.url }}"
+                           class="share-url-input"
+                           style="width:100%; padding:7px 10px; border:1px solid #d1d5db; border-radius:6px; font-family:monospace; font-size:12px; background:white; color:#4a5568; margin-bottom:8px;">
+                    <div style="display:flex; gap:8px;">
+                        <button type="button" class="btn-copy copy-share-btn" data-url="{{ link.url }}"
+                                style="width:auto; padding:6px 12px; font-size:12px;">Copy Link</button>
+                        <a href="{{ link.url }}" target="_blank" rel="noopener"
+                           class="btn btn-green"
+                           style="padding:6px 12px; font-size:12px; text-decoration:none;">Open Page →</a>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Results Table Card -->
+        <div class="card" style="padding: 20px;">
+            <div class="tag-legend">
+                <span class="legend-title">Reason tags:</span>
+                <span class="legend-item"><span class="swatch" style="background:#fed7d7;border:1px solid #feb2b2;"></span> QC error code</span>
+                <span class="legend-item"><span class="swatch" style="background:#fefcbf;border:1px solid #f6e05e;"></span> Condition-column flag</span>
+                <span class="legend-item"><span class="swatch" style="background:#bee3f8;border:1px solid #90cdf4;"></span> Carrier / GSX locked</span>
+                <span class="legend-item"><span class="swatch" style="background:#e9d8fd;border:1px solid #d6bcfa;"></span> Low battery</span>
+                <span class="legend-item"><span class="swatch" style="background:#fde8c8;border:1px dashed #dd6b20;"></span> Not sure — needs testing</span>
+                <span class="legend-item" style="margin-left:auto;">
+                    <span class="swatch" style="background:rgba(56,161,105,0.20);border:1px solid #9ae6b4;"></span> Meets threshold
+                    <span class="swatch" style="background:rgba(229,62,62,0.15);border:1px solid #feb2b2;margin-left:6px;"></span> Below threshold
+                    <span class="swatch" style="background:rgba(246,224,94,0.30);border:1px solid #f6e05e;margin-left:6px;"></span> Not-sure only (needs testing)
+                    <span class="swatch" style="background:rgba(99,179,237,0.30);border:1px solid #63b3ed;margin-left:6px;"></span> LCD mismatch (Condition vs Physical QC LCD)
+                    <span class="swatch" style="background:rgba(237,137,54,0.25);border-left:3px solid #dd6b20;margin-left:6px;"></span> Lock mismatch
+                </span>
+            </div>
+            <div class="filter-bar">
+                <input type="text" id="searchInput" placeholder="Search by WID, model, IMEI, reason...">
+                <select id="reasonFilter">
+                    <option value="">All Reasons</option>
+                    <option value="QC:">QC Issues</option>
+                    <option value="Condition:">Condition Flagged</option>
+                    <option value="Carrier Locked:">Carrier Locked</option>
+                    <option value="Low Battery:">Low Battery</option>
+                    <option value="ID/MDM Lock:">ID/MDM Lock</option>
+                    <option value="__not_sure__">Not Sure / Need to Test</option>
+                </select>
+                <button class="btn-copy" id="copyWidsBtn" onclick="copyWIDs()" style="width:auto; padding: 8px 16px;">
+                    Copy WIDs
+                </button>
+                <button class="btn-copy" id="copyAllWidsBtn" onclick="copyAllWIDs()" style="width:auto; padding: 8px 16px;">
+                    Copy All WIDs
+                </button>
+                <button class="btn-copy" id="copyImeisBtn" onclick="copyIMEIs()" style="width:auto; padding: 8px 16px;">
+                    Copy IMEIs
+                </button>
+                <button class="btn-copy" id="copyAllImeisBtn" onclick="copyAllIMEIs()" style="width:auto; padding: 8px 16px;">
+                    Copy All IMEIs
+                </button>
+                <button class="btn-copy" id="copyTableBtn" onclick="toggleCopyTablePanel()" style="width:auto; padding: 8px 16px;">
+                    Copy as Table…
+                </button>
+                <button class="btn btn-green" id="downloadFilteredBtn" onclick="downloadFilteredCSV()" style="padding: 8px 16px; font-size: 13px;">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    <span id="downloadFilteredLabel">Download Filtered CSV</span>
+                </button>
+            </div>
+            <div id="copyTablePanel" style="display:none; margin: 10px 0 16px; padding: 14px; background: #f7fafc; border: 1px solid #e2e8f0; border-radius: 8px;">
+                <div style="font-weight:600; color:#1a1a2e; margin-bottom:10px; font-size:13px;">
+                    Pick columns to copy as a formatted table
+                    <span style="font-weight:400; color:#718096;">— paste into Teams, Outlook, or Excel.</span>
+                </div>
+                <div id="copyTableCols" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 6px 14px; font-size:13px;"></div>
+                <div style="margin-top: 12px; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                    <button class="btn-copy" id="doCopyTableBtn" onclick="copyTableAsHTML()" style="width:auto; padding:8px 16px;">Copy</button>
+                    <button class="btn-copy" onclick="toggleCopyTablePanel()" style="width:auto; padding:8px 16px; border-color:#a0aec0; color:#4a5568;">Close</button>
+                    <button class="btn-copy" onclick="copyTableSelectAll(true)" style="width:auto; padding:6px 12px; font-size:12px; border-color:#a0aec0; color:#4a5568;">Select all</button>
+                    <button class="btn-copy" onclick="copyTableSelectAll(false)" style="width:auto; padding:6px 12px; font-size:12px; border-color:#a0aec0; color:#4a5568;">Clear</button>
+                    <label style="margin-left:auto; font-size:12px; color:#4a5568; display:flex; align-items:center; gap:6px;">
+                        <input type="checkbox" id="copyVisibleOnly" checked> Visible (filtered) rows only
+                    </label>
+                </div>
+            </div>
+            <div class="table-wrapper table-scroll">
+                <table id="resultsTable">
+                    <thead>
+                        <tr>
+                            {% for col in columns %}
+                            <th class="sortable">{{ col }}</th>
+                            {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in results %}
+                        <tr class="{% if row.get('LCD Mismatch') == 'YES' %}lcd-mismatch{% elif not row.get('Reason(s)') and row.get('Not Sure / Need to Test') %}row-not-sure-only{% elif row.get('Threshold Met') == 'YES' %}threshold-met{% elif row.get('Threshold Met') == 'NO' %}threshold-not-met{% endif %}">
+                            {% for col in columns %}
+                            <td>
+                                {% if col == 'Reason(s)' %}
+                                    {% for part in row[col].split(' | ') %}
+                                        {% if part %}
+                                        {% if part.startswith('QC:') %}
+                                            <span class="reason-tag reason-qc">{{ part }}</span>
+                                        {% elif part.startswith('Condition:') %}
+                                            <span class="reason-tag reason-condition">{{ part }}</span>
+                                        {% elif 'Carrier' in part %}
+                                            <span class="reason-tag reason-carrier">{{ part }}</span>
+                                        {% elif 'Battery' in part %}
+                                            <span class="reason-tag reason-battery">{{ part }}</span>
+                                        {% else %}
+                                            <span class="reason-tag">{{ part }}</span>
+                                        {% endif %}
+                                        {% endif %}
+                                    {% endfor %}
+                                {% elif col == 'Not Sure / Need to Test' %}
+                                    {% for part in row[col].split(' | ') %}
+                                        {% if part %}
+                                            <span class="reason-tag reason-not-sure">{{ part }}</span>
+                                        {% endif %}
+                                    {% endfor %}
+                                {% elif col == 'Cost' %}
+                                    ${{ "%.2f"|format(row[col]|float) if row[col] else '0.00' }}
+                                {% elif col == 'Return %' %}
+                                    {{ row[col] }}%
+                                {% elif col == 'Threshold Met' %}
+                                    {% if row[col] == 'YES' %}
+                                        <span style="color: #276749; font-weight: 600;">YES</span>
+                                    {% else %}
+                                        <span style="color: #c53030; font-weight: 600;">NO</span>
+                                    {% endif %}
+                                {% else %}
+                                    {{ row[col] if row[col] is not none and row[col] == row[col] else '' }}
+                                {% endif %}
+                            </td>
+                            {% endfor %}
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div style="margin-top: 12px; font-size: 13px; color: #718096;">
+                Showing <span id="visibleCount">{{ results|length }}</span> of {{ results|length }} candidates
+            </div>
+        </div>
+
+        <!-- Next steps -->
+        <div class="card next-steps">
+            <h2>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:#276749;vertical-align:middle;margin-right:6px;"><polyline points="20 6 9 17 4 12"/></svg>
+                What to do next
+            </h2>
+            <div class="lead">
+                {{ summary.total }} device{{ 's' if summary.total != 1 else '' }} qualify for return. Here's how to hand them off.
+            </div>
+            <div class="next-steps-grid">
+                <div class="ns-item">
+                    <div class="ns-title">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        Download the CSV
+                    </div>
+                    <div class="ns-body">Use <strong>Download All</strong> for every candidate, or <strong>Download Filtered CSV</strong> to export just what matches your current search/filter.</div>
+                </div>
+                {% if summary.project_links %}
+                <div class="ns-item">
+                    <div class="ns-title">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                        Share per-project links
+                    </div>
+                    <div class="ns-body">Each project above has its own public page with the phone list. Copy the link and send it to the vendor — only admins can add or remove photos.</div>
+                </div>
+                {% endif %}
+                <div class="ns-item">
+                    <div class="ns-title">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="2"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="2" fill="currentColor"/></svg>
+                        Attach photos
+                    </div>
+                    <div class="ns-body">Open <strong>Phone Scanner</strong> from the top bar to auto-capture photos of each device. Photos attach to the project's shareable page so vendors see evidence with the return.</div>
+                </div>
+                <div class="ns-item">
+                    <div class="ns-title">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                        Copy WIDs / IMEIs
+                    </div>
+                    <div class="ns-body">Click any WID, IMEI, or Invoice cell to copy it. Use <strong>Copy WIDs</strong> / <strong>Copy IMEIs</strong> for the full filtered list, or <strong>Copy as Table…</strong> to paste a formatted table into Teams or Outlook.</div>
+                </div>
+                {% if summary.not_sure %}
+                <div class="ns-item">
+                    <div class="ns-title" style="color:#c05621;">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                        Verify "Not Sure" items
+                    </div>
+                    <div class="ns-body" style="color:#9c4221;">{{ summary.not_sure }} device{{ 's' if summary.not_sure != 1 else '' }} need manual testing before submission — filter by <em>Not Sure / Need to Test</em> to see which.</div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        {% if summary.grade_rules_table %}
+        <!-- Grade Rules Table Card -->
+        <div class="card" style="padding: 20px;">
+            <details class="grade-rules">
+                <summary>
+                    RMA Rules by Grade — {{ summary.vendor_name }}
+                    <span class="rules-key">
+                        <span><span style="display:inline-block;padding:1px 6px;background:#e6ffed;border:1px solid #9ae6b4;border-radius:3px;color:#276749;font-weight:600;font-size:11px;">YES</span> returnable</span>
+                        <span><span style="display:inline-block;padding:1px 6px;background:#fde8c8;border:1px dashed #dd6b20;border-radius:3px;color:#9c4221;font-weight:600;font-size:11px;">?</span> needs test</span>
+                        <span><span style="display:inline-block;padding:1px 6px;background:#fff5f5;border:1px solid #feb2b2;border-radius:3px;color:#c53030;font-weight:600;font-size:11px;">NO</span> not accepted</span>
+                    </span>
+                </summary>
+                <div class="rules-lead">
+                    These are the source-of-truth rules from <strong>Vendor RMA Guidelines.xlsx</strong>. For each grade, the table shows which defect categories the vendor will accept back. The scanner uses the row matching each device's Vendor Condition to decide whether it's a return candidate.
+                </div>
+            <div style="overflow-x: auto;">
+            {% set all_cats = [] %}
+            {% for grade, rules in summary.grade_rules_table.items() %}
+                {% for cat in rules.returnable + rules.not_sure + rules.no %}
+                    {% if cat not in all_cats %}{% set _ = all_cats.append(cat) %}{% endif %}
+                {% endfor %}
+            {% endfor %}
+            {% set sorted_cats = all_cats|sort %}
+            <table style="border-collapse: collapse; font-size: 12px; width: auto;">
+                <thead>
+                    <tr>
+                        <th style="padding: 6px 12px; background: #1a1a2e; color: white; text-align: left; white-space: nowrap;">Grade</th>
+                        {% for cat in sorted_cats %}
+                        <th style="padding: 6px 12px; background: #1a1a2e; color: white; text-align: center; white-space: nowrap;">{{ cat }}</th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for grade, rules in summary.grade_rules_table.items() %}
+                    <tr style="border-bottom: 1px solid #edf2f7;">
+                        <td style="padding: 5px 12px; font-weight: 600; white-space: nowrap; color: #2d3748;">{{ grade }}</td>
+                        {% for cat in sorted_cats %}
+                        <td style="padding: 5px 12px; text-align: center;">
+                            {% if cat in rules.returnable %}
+                                <span style="display:inline-block; padding: 2px 8px; background: #e6ffed; border: 1px solid #9ae6b4; border-radius: 4px; color: #276749; font-weight: 600;">YES</span>
+                            {% elif cat in rules.not_sure %}
+                                <span style="display:inline-block; padding: 2px 8px; background: #fde8c8; border: 1px dashed #dd6b20; border-radius: 4px; color: #9c4221;">?</span>
+                            {% else %}
+                                <span style="display:inline-block; padding: 2px 8px; background: #fff5f5; border: 1px solid #feb2b2; border-radius: 4px; color: #c53030;">NO</span>
+                            {% endif %}
+                        </td>
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            </div>
+            </details>
+        </div>
+        {% endif %}
+        {% endif %}
+    </div>
+
+    <div class="toast" id="toast"></div>
+    <script>
+        {% if results %}
+        var tableData    = {{ results  | tojson }};
+        var tableColumns = {{ columns  | tojson }};
+        var selectedVendorKey = {{ selected_vendor | tojson }};
+        var allWids  = {{ summary.all_wids  | tojson }};
+        var allImeis = {{ summary.all_imeis | tojson }};
+        {% endif %}
+
+        // -------- Toast --------
+        var toastTimer;
+        function showToast(msg) {
+            var el = document.getElementById('toast');
+            if (!el) return;
+            el.textContent = msg;
+            el.classList.add('show');
+            clearTimeout(toastTimer);
+            toastTimer = setTimeout(function() { el.classList.remove('show'); }, 1600);
+        }
+
+        var invoiceCache = {};
+        var activeVendor = null;
+
+        // Load invoices when vendor dropdown changes
+        var vendorSelect = document.getElementById('vendorSelect');
+        var invoicePanel = document.getElementById('invoicePanel');
+
+        function loadInvoicesForVendor(vendorKey) {
+            if (!vendorKey) {
+                invoicePanel.classList.remove('visible');
+                activeVendor = null;
+                return;
+            }
+
+            activeVendor = vendorKey;
+            invoicePanel.classList.add('visible');
+
+            if (invoiceCache[vendorKey]) {
+                renderInvoices(invoiceCache[vendorKey]);
+            } else {
+                document.getElementById('sidePanelTitle').textContent = 'Invoices';
+                document.getElementById('sidePanelRange').textContent = '';
+                document.getElementById('sidePanelList').innerHTML =
+                    '<div class="loading-text">Loading...</div>';
+                document.getElementById('sidePanelFooter').style.display = 'none';
+
+                fetch('/api/invoices/' + vendorKey)
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        invoiceCache[vendorKey] = data;
+                        // Only render if this vendor is still selected
+                        if (activeVendor === vendorKey) {
+                            renderInvoices(data);
+                        }
+                    })
+                    .catch(function() {
+                        if (activeVendor === vendorKey) {
+                            document.getElementById('sidePanelList').innerHTML =
+                                '<div class="inv-empty">Error loading invoices.</div>';
+                        }
+                    });
+            }
+        }
+
+        function renderInvoices(data) {
+            document.getElementById('sidePanelTitle').textContent =
+                data.vendor_name + ' Invoices';
+            document.getElementById('sidePanelRange').textContent =
+                data.cutoff + ' \u2013 ' + data.today;
+
+            var list = document.getElementById('sidePanelList');
+            var footer = document.getElementById('sidePanelFooter');
+
+            if (data.count === 0) {
+                list.innerHTML = '<div class="inv-empty">No invoices found in this window.</div>';
+                footer.style.display = 'none';
+                return;
+            }
+
+            function escapeHtml(s) {
+                return String(s == null ? '' : s)
+                    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+            }
+
+            var html = '<div class="inv-row-head">' +
+                '<span>Invoice #</span>' +
+                '<span>Project #</span>' +
+                '<span class="inv-date">Date</span>' +
+                '</div>';
+            data.invoices.forEach(function(inv) {
+                var proj = inv.project || '';
+                var projCell = proj
+                    ? '<span class="inv-proj">' + escapeHtml(proj) + '</span>'
+                    : '<span class="inv-proj empty">—</span>';
+                html += '<div class="inv-row">' +
+                    '<span class="inv-num">' + escapeHtml(inv.invoice) + '</span>' +
+                    projCell +
+                    '<span class="inv-date">' + escapeHtml(inv.date) + '</span>' +
+                    '</div>';
+            });
+            html += '<div class="inv-count">' + data.count + ' invoice(s)</div>';
+            list.innerHTML = html;
+            footer.style.display = 'block';
+        }
+
+        function copyInvoices() {
+            if (!activeVendor) return;
+            var data = invoiceCache[activeVendor];
+            if (!data || !data.invoices.length) return;
+            var nums = data.invoices.map(function(inv) { return inv.invoice; });
+            var unique = nums.filter(function(v, i, a) { return a.indexOf(v) === i; });
+            var text = unique.join('\n');
+
+            function onCopySuccess() {
+                var btn = document.getElementById('copyBtn');
+                btn.textContent = 'Copied ' + unique.length + ' invoice #s!';
+                btn.classList.add('copied');
+                setTimeout(function() {
+                    btn.textContent = 'Copy All Invoice #s';
+                    btn.classList.remove('copied');
+                }, 2000);
+            }
+
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(onCopySuccess).catch(function() {
+                    fallbackCopy(text, onCopySuccess);
+                });
+            } else {
+                fallbackCopy(text, onCopySuccess);
+            }
+        }
+
+        function copyProjects() {
+            if (!activeVendor) return;
+            var data = invoiceCache[activeVendor];
+            if (!data || !data.invoices.length) return;
+            var projs = [];
+            data.invoices.forEach(function(inv) {
+                var raw = (inv.project || '').trim();
+                if (!raw) return;
+                raw.split(',').forEach(function(p) {
+                    var t = p.trim();
+                    if (t) projs.push(t);
+                });
+            });
+            var unique = projs.filter(function(v, i, a) { return a.indexOf(v) === i; });
+            var btn = document.getElementById('copyProjBtn');
+
+            if (!unique.length) {
+                btn.textContent = 'No project #s';
+                setTimeout(function() { btn.textContent = 'Copy All Project #s'; }, 1500);
+                return;
+            }
+
+            var text = unique.join('\n');
+
+            function onCopySuccess() {
+                btn.textContent = 'Copied ' + unique.length + ' project #s!';
+                btn.classList.add('copied');
+                setTimeout(function() {
+                    btn.textContent = 'Copy All Project #s';
+                    btn.classList.remove('copied');
+                }, 2000);
+            }
+
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(onCopySuccess).catch(function() {
+                    fallbackCopy(text, onCopySuccess);
+                });
+            } else {
+                fallbackCopy(text, onCopySuccess);
+            }
+        }
+
+        function fallbackCopy(text, callback) {
+            var ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.position = 'fixed';
+            ta.style.left = '-9999px';
+            document.body.appendChild(ta);
+            ta.select();
+            try { document.execCommand('copy'); callback(); }
+            catch(e) { alert('Copy failed \u2014 please copy manually.'); }
+            document.body.removeChild(ta);
+        }
+
+        vendorSelect.addEventListener('change', function() {
+            loadInvoicesForVendor(this.value);
+        });
+
+        // Auto-load if a vendor is already selected (e.g. after form submit)
+        if (vendorSelect.value) {
+            loadInvoicesForVendor(vendorSelect.value);
+        }
+
+        // Loading state on submit
+        document.getElementById('uploadForm').addEventListener('submit', function() {
+            var btn = document.getElementById('submitBtn');
+            btn.disabled = true;
+            btn.classList.add('loading');
+        });
+
+        // Table search & filter
+        var searchInput = document.getElementById('searchInput');
+        var reasonFilter = document.getElementById('reasonFilter');
+        if (searchInput) {
+            function filterTable() {
+                var query = searchInput.value.toLowerCase();
+                var reason = reasonFilter.value;
+                var rows = document.querySelectorAll('#resultsTable tbody tr');
+                var visible = 0;
+                rows.forEach(function(row) {
+                    var text = row.textContent.toLowerCase();
+                    var matchSearch = !query || text.includes(query);
+                    var matchReason = true;
+                    if (reason === '__not_sure__') {
+                        var notSureCells = row.querySelectorAll('.reason-not-sure');
+                        matchReason = notSureCells.length > 0;
+                    } else if (reason === '__mismatch__') {
+                        matchReason = row.classList.contains('lock-mismatch');
+                    } else if (reason) {
+                        matchReason = text.includes(reason.toLowerCase());
+                    }
+                    var show = matchSearch && matchReason;
+                    row.style.display = show ? '' : 'none';
+                    if (show) visible++;
+                });
+                document.getElementById('visibleCount').textContent = visible;
+
+                // Update the filtered download button label
+                var filterLabel = reasonFilter.options[reasonFilter.selectedIndex].text;
+                var isFiltered = query || reason;
+                var dlLabel = isFiltered
+                    ? 'Download Filtered CSV (' + visible + ')'
+                    : 'Download Filtered CSV';
+                document.getElementById('downloadFilteredLabel').textContent = dlLabel;
+            }
+
+        function downloadFilteredCSV() {
+            if (typeof tableData === 'undefined') return;
+
+            // Collect indices of visible rows
+            var rows = document.querySelectorAll('#resultsTable tbody tr');
+            var visibleData = [];
+            rows.forEach(function(tr, i) {
+                if (tr.style.display !== 'none') {
+                    visibleData.push(tableData[i]);
+                }
+            });
+
+            if (!visibleData.length) return;
+
+            // Build CSV
+            function escapeCell(val) {
+                if (val === null || val === undefined || val !== val) return '';
+                var s = String(val);
+                if (s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r')) {
+                    s = '"' + s.replace(/"/g, '""') + '"';
+                }
+                return s;
+            }
+
+            var csvLines = [tableColumns.map(escapeCell).join(',')];
+            visibleData.forEach(function(row) {
+                csvLines.push(tableColumns.map(function(col) {
+                    return escapeCell(row[col]);
+                }).join(','));
+            });
+
+            var csv = csvLines.join('\r\n');
+            var blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            var filterLabel = reasonFilter.options[reasonFilter.selectedIndex].text.replace(/[^a-z0-9]/gi, '_');
+            var searchLabel = searchInput.value ? '_search' : '';
+            a.download = selectedVendorKey + '_' + filterLabel + searchLabel + '.csv';
+            a.href = url;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+            searchInput.addEventListener('input', filterTable);
+            reasonFilter.addEventListener('change', filterTable);
+        }
+
+        function getColIndex(header) {
+            var headers = document.querySelectorAll('#resultsTable thead th');
+            for (var i = 0; i < headers.length; i++) {
+                if (headers[i].textContent.trim() === header) return i;
+            }
+            return -1;
+        }
+
+        function copyColValues(colName, btnId, label) {
+            var idx = getColIndex(colName);
+            if (idx === -1) return;
+            var rows = document.querySelectorAll('#resultsTable tbody tr');
+            var values = [];
+            rows.forEach(function(row) {
+                if (row.style.display === 'none') return;
+                var cell = row.querySelectorAll('td')[idx];
+                if (cell) {
+                    var val = cell.textContent.trim();
+                    if (val) values.push(val);
+                }
+            });
+            if (!values.length) return;
+            var text = values.join('\n');
+            var btn = document.getElementById(btnId);
+            function onCopied() {
+                btn.textContent = 'Copied ' + values.length + ' ' + label + '!';
+                btn.classList.add('copied');
+                setTimeout(function() {
+                    btn.textContent = 'Copy ' + label;
+                    btn.classList.remove('copied');
+                }, 2000);
+            }
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(onCopied).catch(function() {
+                    fallbackCopy(text, onCopied);
+                });
+            } else {
+                fallbackCopy(text, onCopied);
+            }
+        }
+
+        function copyWIDs()    { copyColValues('WID',  'copyWidsBtn',  'WIDs'); }
+        function copyIMEIs()   { copyColValues('IMEI', 'copyImeisBtn', 'IMEIs'); }
+        function copyAllWIDs() {
+            if (typeof allWids === 'undefined' || !allWids.length) return;
+            var text = allWids.join('\n');
+            var btn = document.getElementById('copyAllWidsBtn');
+            function onCopied() {
+                btn.textContent = 'Copied ' + allWids.length + ' WIDs!';
+                btn.classList.add('copied');
+                setTimeout(function() { btn.textContent = 'Copy All WIDs'; btn.classList.remove('copied'); }, 2000);
+            }
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(onCopied).catch(function() { fallbackCopy(text, onCopied); });
+            } else { fallbackCopy(text, onCopied); }
+        }
+
+        function copyAllIMEIs() {
+            if (typeof allImeis === 'undefined' || !allImeis.length) return;
+            var text = allImeis.join('\n');
+            var btn = document.getElementById('copyAllImeisBtn');
+            function onCopied() {
+                btn.textContent = 'Copied ' + allImeis.length + ' IMEIs!';
+                btn.classList.add('copied');
+                setTimeout(function() { btn.textContent = 'Copy All IMEIs'; btn.classList.remove('copied'); }, 2000);
+            }
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(onCopied).catch(function() { fallbackCopy(text, onCopied); });
+            } else { fallbackCopy(text, onCopied); }
+        }
+
+        // =========================================================
+        // Copy selected columns as a formatted HTML table (for Teams / Outlook / Excel)
+        // =========================================================
+        var COPY_TABLE_DEFAULTS = ['WID', 'Vendor Condition', 'Vendor Description', 'Vendor Model', 'Brand', 'Model', 'IMEI', 'Inventory Notes (Out Reason)', 'Reason(s)'];
+
+        function escapeHTMLForCopy(s) {
+            return String(s).replace(/[&<>"']/g, function(ch) {
+                return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];
+            });
+        }
+
+        function getAllColumnNames() {
+            return Array.prototype.map.call(
+                document.querySelectorAll('#resultsTable thead th'),
+                function(th) { return th.textContent.trim(); }
+            );
+        }
+
+        function populateCopyTableCols() {
+            var host = document.getElementById('copyTableCols');
+            if (host.dataset.populated === '1') return;
+            var cols = getAllColumnNames();
+            host.innerHTML = cols.map(function(c, i) {
+                var checked = COPY_TABLE_DEFAULTS.indexOf(c) !== -1 ? 'checked' : '';
+                var id = 'copyCol_' + i;
+                return '<label for="' + id + '" style="display:flex; align-items:center; gap:6px; cursor:pointer; padding:2px 0;">'
+                     + '<input type="checkbox" id="' + id + '" class="copy-col-cb" value="' + escapeHTMLForCopy(c) + '" ' + checked + '>'
+                     + '<span>' + escapeHTMLForCopy(c) + '</span></label>';
+            }).join('');
+            host.dataset.populated = '1';
+        }
+
+        function toggleCopyTablePanel() {
+            var panel = document.getElementById('copyTablePanel');
+            var opening = panel.style.display === 'none';
+            if (opening) populateCopyTableCols();
+            panel.style.display = opening ? 'block' : 'none';
+        }
+
+        function copyTableSelectAll(val) {
+            document.querySelectorAll('.copy-col-cb').forEach(function(cb) { cb.checked = !!val; });
+        }
+
+        function getSelectedCopyColumns() {
+            var out = [];
+            document.querySelectorAll('.copy-col-cb').forEach(function(cb) {
+                if (cb.checked) out.push(cb.value);
+            });
+            return out;
+        }
+
+        function getRowsForCopy() {
+            var visibleOnly = document.getElementById('copyVisibleOnly').checked;
+            if (typeof tableData === 'undefined' || !tableData.length) return [];
+            if (!visibleOnly) return tableData.slice();
+            var rows = document.querySelectorAll('#resultsTable tbody tr');
+            var out = [];
+            for (var i = 0; i < rows.length && i < tableData.length; i++) {
+                if (rows[i].style.display !== 'none') out.push(tableData[i]);
+            }
+            return out;
+        }
+
+        function cellText(value) {
+            if (value === null || value === undefined) return '';
+            if (typeof value === 'number' && isNaN(value)) return '';
+            return String(value);
+        }
+
+        function buildCopyTableHTML(columns, rows) {
+            var ths = columns.map(function(c) {
+                return '<th style="padding:6px 10px;border:1px solid #cbd5e0;background:#1a1a2e;color:#ffffff;text-align:left;font-family:Arial,Helvetica,sans-serif;font-size:13px;">'
+                     + escapeHTMLForCopy(c) + '</th>';
+            }).join('');
+            var trs = rows.map(function(row, i) {
+                var bg = i % 2 === 0 ? '#ffffff' : '#f7fafc';
+                var tds = columns.map(function(c) {
+                    var raw = cellText(row[c]);
+                    var html;
+                    if (c === 'Reason(s)' || c === 'Not Sure / Need to Test') {
+                        html = raw.split(' | ').filter(Boolean).map(escapeHTMLForCopy).join('<br>');
+                    } else if (c === 'Cost') {
+                        var n = parseFloat(raw);
+                        html = isNaN(n) ? '' : '$' + n.toFixed(2);
+                    } else if (c === 'Return %') {
+                        html = raw === '' ? '' : escapeHTMLForCopy(raw) + '%';
+                    } else {
+                        html = escapeHTMLForCopy(raw);
+                    }
+                    return '<td style="padding:5px 10px;border:1px solid #cbd5e0;background:' + bg
+                         + ';font-family:Arial,Helvetica,sans-serif;font-size:12px;vertical-align:top;">'
+                         + html + '</td>';
+                }).join('');
+                return '<tr>' + tds + '</tr>';
+            }).join('');
+            return '<table style="border-collapse:collapse;border:1px solid #cbd5e0;"><thead><tr>'
+                 + ths + '</tr></thead><tbody>' + trs + '</tbody></table>';
+        }
+
+        function buildCopyTablePlain(columns, rows) {
+            var clean = function(v) { return cellText(v).replace(/[\t\r\n]/g, ' '); };
+            var lines = [columns.join('\t')];
+            rows.forEach(function(row) {
+                lines.push(columns.map(function(c) { return clean(row[c]); }).join('\t'));
+            });
+            return lines.join('\n');
+        }
+
+        function copyRichContent(html, plain, btn, origLabel) {
+            function done() {
+                btn.textContent = 'Copied!';
+                btn.classList.add('copied');
+                setTimeout(function() {
+                    btn.textContent = origLabel;
+                    btn.classList.remove('copied');
+                }, 2000);
+            }
+            function fallbackRich() {
+                var holder = document.createElement('div');
+                holder.contentEditable = 'true';
+                holder.style.position = 'fixed';
+                holder.style.left = '-9999px';
+                holder.style.top = '0';
+                holder.innerHTML = html;
+                document.body.appendChild(holder);
+                var range = document.createRange();
+                range.selectNodeContents(holder);
+                var sel = window.getSelection();
+                sel.removeAllRanges();
+                sel.addRange(range);
+                try { document.execCommand('copy'); done(); }
+                catch (e) { alert('Copy failed — please copy manually.'); }
+                sel.removeAllRanges();
+                document.body.removeChild(holder);
+            }
+            if (window.ClipboardItem && navigator.clipboard && navigator.clipboard.write) {
+                try {
+                    var item = new ClipboardItem({
+                        'text/html':  new Blob([html],  { type: 'text/html'  }),
+                        'text/plain': new Blob([plain], { type: 'text/plain' })
+                    });
+                    navigator.clipboard.write([item]).then(done).catch(fallbackRich);
+                    return;
+                } catch (e) { /* fallthrough */ }
+            }
+            fallbackRich();
+        }
+
+        function copyTableAsHTML() {
+            var cols = getSelectedCopyColumns();
+            var btn = document.getElementById('doCopyTableBtn');
+            if (!cols.length) {
+                btn.textContent = 'Pick a column first';
+                setTimeout(function() { btn.textContent = 'Copy'; }, 1500);
+                return;
+            }
+            var rows = getRowsForCopy();
+            if (!rows.length) {
+                btn.textContent = 'No rows to copy';
+                setTimeout(function() { btn.textContent = 'Copy'; }, 1500);
+                return;
+            }
+            var html  = buildCopyTableHTML(cols, rows);
+            var plain = buildCopyTablePlain(cols, rows);
+            copyRichContent(html, plain, btn, 'Copy');
+        }
+
+        // =========================================================
+        // Copy share links (per invoice)
+        // =========================================================
+        document.querySelectorAll('.copy-share-btn').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var url = btn.getAttribute('data-url');
+                function done() {
+                    var orig = btn.textContent;
+                    btn.textContent = 'Copied!';
+                    btn.classList.add('copied');
+                    showToast('Link copied');
+                    setTimeout(function() {
+                        btn.textContent = orig;
+                        btn.classList.remove('copied');
+                    }, 1600);
+                }
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(url).then(done).catch(function() { fallbackCopy(url, done); });
+                } else { fallbackCopy(url, done); }
+            });
+        });
+        document.querySelectorAll('.share-url-input').forEach(function(inp) {
+            inp.addEventListener('click', function() { inp.select(); });
+        });
+
+        // =========================================================
+        // QOL #4 — Remember last vendor in localStorage
+        // =========================================================
+        (function() {
+            if (!vendorSelect) return;
+            var LS_KEY = 'rcf_last_vendor';
+            vendorSelect.addEventListener('change', function() {
+                if (this.value) localStorage.setItem(LS_KEY, this.value);
+            });
+            // Only auto-apply if server didn't pre-select
+            if (!vendorSelect.value) {
+                var remembered = localStorage.getItem(LS_KEY);
+                if (remembered) {
+                    var opt = vendorSelect.querySelector('option[value="' + remembered + '"]');
+                    if (opt) {
+                        vendorSelect.value = remembered;
+                        loadInvoicesForVendor(remembered);
+                    }
+                }
+            }
+        })();
+
+        // =========================================================
+        // Results-table only features — need the table to exist
+        // =========================================================
+        if (document.getElementById('resultsTable')) {
+
+            // -----------------------------------------------------
+            // QOL #2 — Click-to-copy cells for WID / IMEI / Invoice
+            // -----------------------------------------------------
+            (function() {
+                var COPY_COLS = ['WID', 'IMEI', 'Invoice'];
+                COPY_COLS.forEach(function(colName) {
+                    var idx = getColIndex(colName);
+                    if (idx === -1) return;
+                    document.querySelectorAll('#resultsTable tbody tr').forEach(function(row) {
+                        var cell = row.querySelectorAll('td')[idx];
+                        if (!cell) return;
+                        cell.classList.add('copyable');
+                        cell.title = 'Click to copy ' + colName;
+                        cell.addEventListener('click', function() {
+                            var val = cell.textContent.trim();
+                            if (!val) return;
+                            function done() {
+                                cell.classList.add('just-copied');
+                                showToast('Copied ' + colName + ': ' + val);
+                                setTimeout(function() { cell.classList.remove('just-copied'); }, 800);
+                            }
+                            if (navigator.clipboard && navigator.clipboard.writeText) {
+                                navigator.clipboard.writeText(val).then(done).catch(function() { fallbackCopy(val, done); });
+                            } else { fallbackCopy(val, done); }
+                        });
+                    });
+                });
+            })();
+
+            // -----------------------------------------------------
+            // QOL #3 — Lock mismatch highlight
+            // -----------------------------------------------------
+            (function() {
+                var detailIdx = getColIndex('Detail Lock Status');
+                if (detailIdx === -1) return;
+                var carrierIdx = getColIndex('Carrier');
+                var gsxIdx = getColIndex('Carrier GSX');
+                var UNLOCKED = ['Unlocked', 'International (Unlocked)', 'Wi-Fi Only', 'WiFi', ''];
+                var mismatchCount = 0;
+                document.querySelectorAll('#resultsTable tbody tr').forEach(function(row) {
+                    var cells = row.querySelectorAll('td');
+                    var detail = (cells[detailIdx] ? cells[detailIdx].textContent : '').trim();
+                    if (!detail) return;
+                    var carrier = carrierIdx >= 0 && cells[carrierIdx] ? cells[carrierIdx].textContent.trim() : '';
+                    var gsx = gsxIdx >= 0 && cells[gsxIdx] ? cells[gsxIdx].textContent.trim() : '';
+                    var iceSaysLocked = UNLOCKED.indexOf(carrier) === -1 && gsx !== 'Unlocked';
+                    var detailSaysLocked = detail.toLowerCase() === 'locked';
+                    if (iceSaysLocked !== detailSaysLocked) {
+                        row.classList.add('lock-mismatch');
+                        mismatchCount++;
+                        var badge = document.createElement('span');
+                        badge.className = 'mismatch-badge';
+                        badge.textContent = 'MISMATCH';
+                        badge.title = 'ICE says ' + (iceSaysLocked ? 'Locked' : 'Unlocked') +
+                                      ', Detail says ' + (detailSaysLocked ? 'Locked' : 'Unlocked');
+                        if (cells[detailIdx]) cells[detailIdx].appendChild(badge);
+                    }
+                });
+                if (mismatchCount > 0) {
+                    var filter = document.getElementById('reasonFilter');
+                    if (filter) {
+                        var opt = document.createElement('option');
+                        opt.value = '__mismatch__';
+                        opt.textContent = 'Lock Mismatches (' + mismatchCount + ')';
+                        filter.appendChild(opt);
+                    }
+                }
+            })();
+
+            // -----------------------------------------------------
+            // QOL #1a — Sortable columns
+            // -----------------------------------------------------
+            (function() {
+                var sortState = { col: null, dir: 1 };
+
+                function parseCell(text) {
+                    var s = (text || '').trim();
+                    if (!s) return { n: null, s: '' };
+                    var cleaned = s.replace(/[$,%]/g, '').replace(/,/g, '');
+                    var num = parseFloat(cleaned);
+                    if (!isNaN(num) && /^-?\d/.test(cleaned)) return { n: num, s: s };
+                    var d = Date.parse(s);
+                    if (!isNaN(d)) return { n: d, s: s };
+                    return { n: null, s: s.toLowerCase() };
+                }
+
+                function sortBy(colIdx, dir) {
+                    var tbody = document.querySelector('#resultsTable tbody');
+                    var rows = Array.prototype.slice.call(tbody.querySelectorAll('tr'));
+                    rows.sort(function(a, b) {
+                        var av = parseCell(a.children[colIdx] && a.children[colIdx].textContent);
+                        var bv = parseCell(b.children[colIdx] && b.children[colIdx].textContent);
+                        if (av.n !== null && bv.n !== null) return (av.n - bv.n) * dir;
+                        if (av.n !== null) return -1 * dir;
+                        if (bv.n !== null) return 1 * dir;
+                        return av.s.localeCompare(bv.s) * dir;
+                    });
+                    rows.forEach(function(r) { tbody.appendChild(r); });
+                }
+
+                document.querySelectorAll('#resultsTable thead th.sortable').forEach(function(th, idx) {
+                    th.addEventListener('click', function() {
+                        var dir = (sortState.col === idx && sortState.dir === 1) ? -1 : 1;
+                        sortState = { col: idx, dir: dir };
+                        document.querySelectorAll('#resultsTable thead th').forEach(function(h) {
+                            h.classList.remove('sort-asc', 'sort-desc');
+                        });
+                        th.classList.add(dir === 1 ? 'sort-asc' : 'sort-desc');
+                        sortBy(idx, dir);
+                    });
+                });
+            })();
+
+        }
+
+        // -------- RMA'd Devices (upload Verizon-style Request Form) --------
+        (function() {
+            var STORAGE_KEY = 'rmadImeisByVendor';
+            var form      = document.getElementById('rmadForm');
+            var fileInput = document.getElementById('rmadFile');
+            var statusEl  = document.getElementById('rmadStatus');
+            var listEl    = document.getElementById('rmadList');
+            var countEl   = document.getElementById('rmadCount');
+            var clearBtn  = document.getElementById('rmadClearBtn');
+            var uploadBtn = document.getElementById('rmadUploadBtn');
+            var headerEl  = document.getElementById('rmadVendorLabel');
+
+            function currentVendor() {
+                var vs = document.getElementById('vendorSelect');
+                return (vs && vs.value) ? vs.value : '';
+            }
+
+            function loadStore() {
+                try {
+                    var raw = localStorage.getItem(STORAGE_KEY);
+                    if (raw) return JSON.parse(raw) || {};
+                } catch (e) {}
+                // One-time migration from the old single-list key
+                try {
+                    var legacy = localStorage.getItem('rmadImeis');
+                    if (legacy) {
+                        var arr = JSON.parse(legacy) || [];
+                        localStorage.removeItem('rmadImeis');
+                        if (arr.length && currentVendor()) {
+                            var store = {};
+                            store[currentVendor()] = arr;
+                            localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
+                            return store;
+                        }
+                    }
+                } catch (e) {}
+                return {};
+            }
+            function saveStore(obj) { localStorage.setItem(STORAGE_KEY, JSON.stringify(obj)); }
+
+            function loadList() {
+                var v = currentVendor();
+                if (!v) return [];
+                var store = loadStore();
+                return Array.isArray(store[v]) ? store[v] : [];
+            }
+            function saveList(arr) {
+                var v = currentVendor();
+                if (!v) return;
+                var store = loadStore();
+                store[v] = arr;
+                saveStore(store);
+            }
+
+            function getImeiColIndex() {
+                var table = document.getElementById('resultsTable');
+                if (!table) return -1;
+                var headers = table.querySelectorAll('thead th');
+                for (var i = 0; i < headers.length; i++) {
+                    if ((headers[i].textContent || '').trim().toUpperCase() === 'IMEI') return i;
+                }
+                return -1;
+            }
+
+            function getColIdxByName(name) {
+                var table = document.getElementById('resultsTable');
+                if (!table) return -1;
+                var headers = table.querySelectorAll('thead th');
+                for (var i = 0; i < headers.length; i++) {
+                    if ((headers[i].textContent || '').trim() === name) return i;
+                }
+                return -1;
+            }
+
+            function recomputeStats() {
+                var table = document.getElementById('resultsTable');
+                if (!table) return;
+                var reasonIdx   = getColIdxByName('Reason(s)');
+                var notSureIdx  = getColIdxByName('Not Sure / Need to Test');
+                var counts = { total: 0, qc: 0, condition: 0, battery: 0, id_lock: 0,
+                               not_sure: 0, gsx_locked: 0, carrier_no_gsx: 0 };
+                table.querySelectorAll('tbody tr:not(.rmad-hidden)').forEach(function(row) {
+                    counts.total++;
+                    var reason = reasonIdx !== -1 ? (row.children[reasonIdx].textContent || '') : '';
+                    var notSure = notSureIdx !== -1 ? (row.children[notSureIdx].textContent || '').trim() : '';
+                    if (reason.indexOf('QC:') !== -1) counts.qc++;
+                    if (reason.indexOf('Condition:') !== -1) counts.condition++;
+                    if (reason.indexOf('Low Battery:') !== -1) counts.battery++;
+                    if (reason.indexOf('ID/MDM Lock:') !== -1) counts.id_lock++;
+                    if (notSure) counts.not_sure++;
+                    var hasGsxLocked = reason.indexOf('GSX: Locked') !== -1;
+                    if (hasGsxLocked) counts.gsx_locked++;
+                    if (reason.indexOf('Carrier Locked:') !== -1 && reason.indexOf('GSX:') === -1) {
+                        counts.carrier_no_gsx++;
+                    }
+                });
+                Object.keys(counts).forEach(function(k) {
+                    var el = document.querySelector('[data-stat="' + k + '"]');
+                    if (el) el.textContent = counts[k];
+                });
+                var showingEl = document.getElementById('visibleCount');
+                if (showingEl) showingEl.textContent = counts.total;
+            }
+
+            function applyToTable() {
+                var table = document.getElementById('resultsTable');
+                if (!table) { console.log('[RMAd] applyToTable: no results table on page'); return 0; }
+                var idx = getImeiColIndex();
+                console.log('[RMAd] applyToTable: IMEI column index =', idx);
+                if (idx === -1) return 0;
+                var set = {};
+                loadList().forEach(function(x) { set[x] = true; });
+                var hidden = 0, checked = 0, sampleCell = null;
+                table.querySelectorAll('tbody tr').forEach(function(row) {
+                    var cells = row.children;
+                    if (idx >= cells.length) return;
+                    var v = (cells[idx].textContent || '').trim();
+                    if (sampleCell === null) sampleCell = v;
+                    checked++;
+                    if (set[v]) { row.classList.add('rmad-hidden'); hidden++; }
+                    else { row.classList.remove('rmad-hidden'); }
+                });
+                console.log('[RMAd] applyToTable: checked', checked, 'rows, hid', hidden,
+                            '— sample IMEI cell text:', JSON.stringify(sampleCell),
+                            '— sample stored IMEI:', JSON.stringify(loadList()[0]));
+                recomputeStats();
+                return hidden;
+            }
+
+            function currentVendorLabel() {
+                var vs = document.getElementById('vendorSelect');
+                if (!vs || !vs.value) return '';
+                var opt = vs.querySelector('option[value="' + vs.value + '"]');
+                return opt ? (opt.textContent || '').trim() : vs.value;
+            }
+
+            function render() {
+                var v = currentVendor();
+                var label = currentVendorLabel();
+                if (headerEl) {
+                    headerEl.textContent = label ? '— ' + label : '';
+                }
+                if (!v) {
+                    countEl.textContent = '';
+                    listEl.innerHTML = "<span style=\"color:#a0aec0; font-style:italic; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;\">" +
+                        "Select a vendor above to see its RMA'd devices.</span>";
+                    applyToTable();
+                    return;
+                }
+                var imeis = loadList();
+                countEl.textContent = imeis.length ? '(' + imeis.length + ')' : '';
+                console.log('[RMAd] render() — vendor:', v, 'stored IMEIs:', imeis.length);
+                if (!imeis.length) {
+                    listEl.innerHTML = "<span style=\"color:#a0aec0; font-style:italic; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;\">" +
+                        "No RMA'd devices yet for " + (label || 'this vendor') + ". Upload a Request Form above — its IMEIs will appear here and be removed from the results table below.</span>";
+                } else {
+                    listEl.innerHTML = imeis.map(function(imei, i) {
+                        return '<div style="display:flex; justify-content:space-between; align-items:center;">' +
+                            '<span>' + (i + 1) + '. ' + imei + '</span>' +
+                            '<button type="button" data-imei="' + imei + '" class="rmad-remove" ' +
+                            'style="background:none; border:none; color:#c53030; cursor:pointer; font-size:16px; padding:0 6px; font-family:inherit;" title="Remove">&times;</button>' +
+                            '</div>';
+                    }).join('');
+                    listEl.querySelectorAll('.rmad-remove').forEach(function(btn) {
+                        btn.addEventListener('click', function() {
+                            var target = btn.getAttribute('data-imei');
+                            saveList(loadList().filter(function(x) { return x !== target; }));
+                            render();
+                        });
+                    });
+                }
+                applyToTable();
+            }
+
+            form.addEventListener('submit', function(e) {
+                e.preventDefault();
+                if (!currentVendor()) {
+                    statusEl.style.color = '#c53030';
+                    statusEl.textContent = 'Select a vendor first.';
+                    return;
+                }
+                if (!fileInput.files.length) {
+                    statusEl.style.color = '#c53030';
+                    statusEl.textContent = 'Choose a file first.';
+                    return;
+                }
+                var fd = new FormData();
+                fd.append('rmad_file', fileInput.files[0]);
+                statusEl.style.color = '#718096';
+                statusEl.textContent = 'Uploading…';
+                uploadBtn.disabled = true;
+                fetch('/rmad/upload', { method: 'POST', body: fd })
+                    .then(function(r) { return r.json().then(function(j) { return { ok: r.ok, body: j }; }); })
+                    .then(function(res) {
+                        if (!res.ok || !res.body.ok) {
+                            statusEl.style.color = '#c53030';
+                            statusEl.textContent = 'Error: ' + (res.body.error || 'Upload failed');
+                            return;
+                        }
+                        var newImeis = res.body.imeis || [];
+                        var existing = loadList();
+                        var seen = {};
+                        existing.forEach(function(x) { seen[x] = true; });
+                        var added = 0, dup = 0;
+                        newImeis.forEach(function(x) {
+                            if (seen[x]) { dup++; return; }
+                            seen[x] = true;
+                            existing.push(x);
+                            added++;
+                        });
+                        saveList(existing);
+                        fileInput.value = '';
+                        render();
+                        var hidden = applyToTable();
+                        statusEl.style.color = '#276749';
+                        statusEl.textContent = 'Added ' + added + ' IMEI(s) from ' + newImeis.length +
+                            ' in form' + (dup ? ' (' + dup + ' duplicate' + (dup !== 1 ? 's' : '') + ' skipped)' : '') +
+                            ' — ' + hidden + ' matching row(s) hidden from results table.';
+                    })
+                    .catch(function(err) {
+                        statusEl.style.color = '#c53030';
+                        statusEl.textContent = 'Error: ' + err;
+                    })
+                    .then(function() { uploadBtn.disabled = false; });
+            });
+
+            clearBtn.addEventListener('click', function() {
+                if (!currentVendor()) return;
+                var list = loadList();
+                if (!list.length) return;
+                var label = currentVendorLabel() || 'this vendor';
+                if (!confirm('Clear all ' + list.length + " RMA'd IMEIs for " + label + '?')) return;
+                saveList([]);
+                statusEl.style.color = '#718096';
+                statusEl.textContent = 'Cleared.';
+                render();
+            });
+
+            var vs = document.getElementById('vendorSelect');
+            if (vs) {
+                vs.addEventListener('change', function() {
+                    statusEl.textContent = '';
+                    render();
+                });
+            }
+
+            render();
+        })();
+
+    </script>
+</body>
+</html>
