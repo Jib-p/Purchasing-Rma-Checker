@@ -61,6 +61,8 @@ ICE_COLS = [
     "Inventory By", "Inventory Date",
     "Missing/Extra",
     "Project #", "Notes",
+    "Tech Notes",              # HYLA: Battery Door Replacement / Lifted Battery Door = non-returnable
+    "Pallet #", "Vendor Notes",  # HYLA RMA form: PO/Order# and Warehouse
 ]
 
 # ---------------------------------------------------------------------------
@@ -109,9 +111,9 @@ QC_CODE_TO_RMA_CATEGORY = {
     "LCD-L3": "Burns (L2-L5)",     # Medium Burn Images
     "LCD-L4": "Burns (L2-L5)",     # Heavy Burn Image
     "LCD-L5": "Burns (L2-L5)",     # Extreme Burn Image
-    # LCD failure codes → Cracked Screen (major display damage)
+    # LCD failure codes → Cracked Screen (major display damage / cracked glass)
     "LCD-F01": "Cracked Screen",   # Visually Bad
-    "LCD-F03": "Cracked Screen",   # Bleeded
+    "LCD-F03": "Bleeding LCD",     # Bleeding LCD (LCD bleed — NOT a cracked screen)
     "LCD-F05": "Cracked Screen",   # Water / 3D Damage / Large White Areas
     "LCD-F06": "Cracked Screen",   # Flickering / Flashing Only
     "LCD-F10": "Cracked Screen",   # Heavy Light Leakage
@@ -210,20 +212,21 @@ def load_rma_grade_rules():
         10: "Low Battery",
         # row 11 = "COSMETIC FAIL:" section header — skip
         12: "Cracked Screen",
-        13: "Cracked Back",
-        14: "Cracked Camera",
-        15: "Burns (L2-L5)",
-        16: "Missing Pixels",
-        17: "Display Spots",
-        # row 18 = "FUNCTION FAIL:" section header — skip
-        19: "Camera Fail",
-        20: "Buttons Fail",
-        21: "Touchscreen Fail",
-        22: "Chargeport Fail",
-        23: "Parts Message",
-        24: "Face ID Fail",
-        25: "Speaker Fail",
-        26: "Wifi/Bluetooth Fail",
+        13: "Bleeding LCD",
+        14: "Cracked Back",
+        15: "Cracked Camera",
+        16: "Burns (L2-L5)",
+        17: "Missing Pixels",
+        18: "Display Spots",
+        # row 19 = "FUNCTION FAIL:" section header — skip
+        20: "Camera Fail",
+        21: "Buttons Fail",
+        22: "Touchscreen Fail",
+        23: "Chargeport Fail",
+        24: "Parts Message",
+        25: "Face ID Fail",
+        26: "Speaker Fail",
+        27: "Wifi/Bluetooth Fail",
     }
 
     rules = {}
@@ -423,7 +426,7 @@ VENDORS = {
             "ID/MDM Lock",
             "Camera Fail", "Buttons Fail", "Touchscreen Fail",
             "Chargeport Fail", "Parts Message", "Face ID Fail", "Speaker Fail",
-            "Cracked Screen", "Cracked Back", "Cracked Camera", "Burns (L2-L5)",
+            "Cracked Screen", "Bleeding LCD", "Cracked Back", "Cracked Camera", "Burns (L2-L5)",
         },
         "not_sure": {"Carrier Locked", "Not Cleared"},
     },
@@ -441,6 +444,7 @@ VENDORS = {
             "ID/MDM Lock",
             "Camera Fail", "Buttons Fail", "Touchscreen Fail",
             "Chargeport Fail", "Parts Message", "Face ID Fail", "Speaker Fail",
+            "Cracked Screen", "Bleeding LCD", "Cracked Back", "Cracked Camera", "Burns (L2-L5)",
         },
         "not_sure": {"Carrier Locked", "Not Cleared"},
     },
@@ -458,6 +462,7 @@ VENDORS = {
             "ID/MDM Lock",
             "Camera Fail", "Buttons Fail", "Touchscreen Fail",
             "Chargeport Fail", "Parts Message", "Face ID Fail", "Speaker Fail",
+            "Cracked Screen", "Bleeding LCD", "Cracked Back", "Cracked Camera", "Burns (L2-L5)",
         },
         "not_sure": {"Carrier Locked", "Not Cleared"},
     },
@@ -868,6 +873,19 @@ def process_ice_report(ice_path, vendor_key, detail_path=None):
         if ice.empty:
             return None, "No graded devices found for this vendor."
 
+    # --- Tech Notes block (HYLA only) ---
+    # "Battery Door Replacement" or "Lifted Battery Door" in Tech Notes means
+    # the device cannot be returned via HYLA regardless of any other defects.
+    tech_notes_blocked_count = 0
+    if vendor_key in ("hyla", "hyla_tps", "hyla_dls") and "Tech Notes" in ice.columns:
+        blocked_mask = (
+            ice["Tech Notes"].astype(str).str.strip().str.lower()
+            .str.contains(r"battery door replacement|lifted battery door", na=False, regex=True)
+        )
+        tech_notes_blocked_count = int(blocked_mask.sum())
+        if tech_notes_blocked_count > 0:
+            ice = ice[~blocked_mask].copy()
+
     ice["IMEI"] = ice["IMEI"].fillna("").str.split(".").str[0]
 
     # Capture all WIDs/IMEIs from the full matched scope (before candidate filtering)
@@ -1010,6 +1028,10 @@ def process_ice_report(ice_path, vendor_key, detail_path=None):
         "IMEI", "Cost", "Notes", "Reason(s)", "Not Sure / Need to Test",
         "Invoice Qty", "Return %", "Threshold Met", "LCD Mismatch",
     ]
+    # Optional HYLA columns — included only if the ICE report had them
+    for col in ("Tech Notes", "Pallet #", "Vendor Notes"):
+        if col in candidates.columns:
+            out_cols.append(col)
     candidates = candidates[out_cols]
 
     # Build stats
@@ -1053,9 +1075,9 @@ def process_ice_report(ice_path, vendor_key, detail_path=None):
             if vendor_rules else "Carrier Locked" in fallback_returnable
         )
 
-    # Detail report match stats
-    detail_matched = int((ice["Detail Lock Status"] != "").sum()) if detail_map else 0
-    detail_locked  = int((ice["Detail Lock Status"].str.lower() == "locked").sum()) if detail_map else 0
+    # Detail report match stats — count from candidates (return-flagged devices only)
+    detail_matched = int((candidates["Detail Lock Status"] != "").sum()) if detail_map else 0
+    detail_locked  = int((candidates["Detail Lock Status"].str.lower() == "locked").sum()) if detail_map else 0
 
     summary = {
         "total": len(candidates),
@@ -1071,6 +1093,7 @@ def process_ice_report(ice_path, vendor_key, detail_path=None):
         "detail_used": bool(detail_map),
         "detail_matched": detail_matched,
         "detail_locked": detail_locked,
+        "tech_notes_blocked": tech_notes_blocked_count,
         "vendor_name": vendor_cfg["name"],
         "vendor_description": vendor_cfg.get("description", ""),
         "invoices_found": len(target_invoices),
@@ -1142,6 +1165,7 @@ def build_combined_summary(per_vendor, errors):
         "detail_used":    any(s["detail_used"] for s in summaries),
         "detail_matched": int(sum(s["detail_matched"] for s in summaries)),
         "detail_locked":  int(sum(s["detail_locked"] for s in summaries)),
+        "tech_notes_blocked": int(sum(s.get("tech_notes_blocked", 0) for s in summaries)),
         "vendor_name":    "All Vendors (Combined)",
         "vendor_description": "Scanned across all active vendors using each vendor's own rules and lookback window.",
         "invoices_found": int(sum(s["invoices_found"] for s in summaries)),
@@ -1373,7 +1397,132 @@ def scan():
 
 
 # Vendors that support generating a vendor-facing Request Form (xlsx) from candidates
-REQUEST_FORM_VENDORS = {"verizon"}
+REQUEST_FORM_VENDORS = {"verizon", "hyla", "hyla_tps", "hyla_dls"}
+
+
+def _reason_to_comment(reasons_str):
+    """Convert a Reason(s) string into a short human-readable Additional Comments string.
+    Uses the specific QC code description (e.g. "Minor Delamination") rather than the
+    generic RMA category name (e.g. "Cracked Back") so comments reflect the actual issue.
+    """
+    if not reasons_str or str(reasons_str).strip() in ("", "nan"):
+        return ""
+    comments = []
+    for part in str(reasons_str).split(" | "):
+        part = part.strip()
+        if not part:
+            continue
+        if part.startswith("Carrier Locked:"):
+            carrier = re.sub(r'\s*\([^)]*\)', '', part.replace("Carrier Locked:", "")).strip()
+            comments.append(f"{carrier} Carrier Locked")
+        elif part.startswith("QC:") or part.startswith("Condition:"):
+            qc_body = part.split(":", 1)[-1].strip()
+            # Each entry is semicolon-separated: "CODE (Description) [Category]"
+            # Use the description in parentheses; fall back to category only if missing.
+            for entry in [e.strip() for e in qc_body.split(";") if e.strip()]:
+                desc_match = re.search(r'\(([^)]+)\)', entry)
+                if desc_match:
+                    desc = desc_match.group(1).strip()
+                    if desc and desc not in comments:
+                        comments.append(desc)
+                else:
+                    cat_match = re.search(r'\[([^\]]+)\]', entry)
+                    if cat_match:
+                        cat = cat_match.group(1).strip()
+                        if cat not in comments:
+                            comments.append(cat)
+                    else:
+                        stripped = re.sub(r'\[[^\]]*\]', '', entry).strip()
+                        if stripped and stripped not in comments:
+                            comments.append(stripped)
+        elif part.startswith("Low Battery:"):
+            comments.append("Low Battery")
+        elif part.startswith("ID/MDM Lock:"):
+            comments.append("ID/MDM Lock")
+        elif part.startswith("New - Activated:"):
+            comments.append("New - Activated")
+        else:
+            comments.append(part)
+    # deduplicate while preserving order
+    seen, deduped = set(), []
+    for c in comments:
+        if c not in seen:
+            seen.add(c)
+            deduped.append(c)
+    return " | ".join(deduped)
+
+
+HYLA_RMA_TEMPLATE = os.path.join(BASE_DIR, "hyla_rma_template.xlsx")
+
+
+def _generate_hyla_rma_form(df, download_date=None):
+    """Build a HYLA RMA Claim Form workbook from a candidates DataFrame.
+
+    Loads the pre-formatted template so all colors, borders, merged cells,
+    column widths, and data-validation dropdowns are preserved exactly.
+    """
+    import openpyxl
+
+    if download_date is None:
+        download_date = datetime.now()
+
+    if not os.path.exists(HYLA_RMA_TEMPLATE):
+        raise FileNotFoundError(
+            "hyla_rma_template.xlsx not found in app directory. "
+            "Re-generate it from the example file."
+        )
+
+    wb = openpyxl.load_workbook(HYLA_RMA_TEMPLATE)
+    ws = wb["RMA Claim Form"]
+
+    # ── Warehouse: first non-empty Vendor Notes value ────────────────────────
+    warehouse = ""
+    if "Vendor Notes" in df.columns:
+        for v in df["Vendor Notes"]:
+            s = str(v or "").strip()
+            if s and s.lower() != "nan":
+                warehouse = s
+                break
+
+    # ── Update live header fields ────────────────────────────────────────────
+    ws["D5"] = download_date          # Date
+    ws["D5"].number_format = "MM/DD/YYYY"
+    ws["D8"] = warehouse              # Warehouse
+
+    # ── Write device rows starting at row 16 ────────────────────────────────
+    row_idx = 16
+    for _, row in df.iterrows():
+        imei = str(row.get("IMEI") or "").strip().split(".")[0]
+        if not imei:
+            continue
+
+        model = str(row.get("Vendor Description") or "").strip()
+        if model.lower() == "nan":
+            model = ""
+
+        # PO/Order#: prefer Pallet # column, fall back to Invoice number
+        pallet = str(row.get("Pallet #") or "").strip()
+        if not pallet or pallet.lower() == "nan":
+            pallet = str(row.get("Invoice") or "").strip()
+            if pallet.lower() == "nan":
+                pallet = ""
+
+        comment = _reason_to_comment(str(row.get("Reason(s)") or ""))
+
+        # C = IMEI (integer, number format '0')
+        ws.cell(row=row_idx, column=3).value = int(imei) if imei.isdigit() else imei
+        # D = Model (text format '@' preserved from template)
+        ws.cell(row=row_idx, column=4).value = model
+        # E = PO/Order # (number format '0' preserved)
+        ws.cell(row=row_idx, column=5).value = int(pallet) if pallet.isdigit() else pallet
+        # F = Credit Amount — left blank (formula in D7 will sum when filled)
+        # G = Reason for Return — left blank (dropdown preserved from template)
+        # H = Additional Comments
+        ws.cell(row=row_idx, column=8).value = comment
+
+        row_idx += 1
+
+    return wb
 
 
 def classify_request_form_issue(reasons, qc_code, condition):
@@ -1426,8 +1575,58 @@ def rmad_generate(vendor_key):
         flash("No recent results to export — process an ICE report first.", "error")
         return redirect(url_for("index"))
 
-    from openpyxl import Workbook  # local import: only needed for this route
     df = pd.read_csv(csv_path, dtype=str, encoding="utf-8-sig")
+
+    # ── HYLA RMA Claim Form (one per invoice) ───────────────────────────────
+    if vendor_key in ("hyla", "hyla_tps", "hyla_dls"):
+        import io, zipfile as _zipfile
+
+        date_str = datetime.now().strftime("%m%d%y")
+        now = datetime.now()
+
+        def _invoice_filename(invoice, warehouse):
+            w_part = f"{warehouse} " if warehouse else ""
+            return f"{w_part}({invoice}).xlsx"
+
+        def _warehouse_for(inv_df):
+            if "Vendor Notes" in inv_df.columns:
+                for v in inv_df["Vendor Notes"]:
+                    s = str(v or "").strip()
+                    if s and s.lower() != "nan":
+                        return s
+            return ""
+
+        invoices = [
+            inv for inv in df["Invoice"].dropna().unique()
+            if str(inv).strip() not in ("", "nan")
+        ]
+
+        if len(invoices) == 1:
+            inv_df = df[df["Invoice"] == invoices[0]]
+            warehouse = _warehouse_for(inv_df)
+            wb = _generate_hyla_rma_form(inv_df, download_date=now)
+            fname = _invoice_filename(invoices[0], warehouse)
+            out_path = os.path.join(app.config["UPLOAD_FOLDER"], fname)
+            wb.save(out_path)
+            return send_file(out_path, as_attachment=True, download_name=fname)
+
+        # Multiple invoices → ZIP of individual forms
+        zip_buf = io.BytesIO()
+        with _zipfile.ZipFile(zip_buf, "w", _zipfile.ZIP_DEFLATED) as zf:
+            for invoice in sorted(invoices):
+                inv_df = df[df["Invoice"] == invoice]
+                warehouse = _warehouse_for(inv_df)
+                wb = _generate_hyla_rma_form(inv_df, download_date=now)
+                xl_buf = io.BytesIO()
+                wb.save(xl_buf)
+                zf.writestr(_invoice_filename(invoice, warehouse), xl_buf.getvalue())
+        zip_buf.seek(0)
+        zip_name = "HYLA RMA Claim Forms.zip"
+        return send_file(zip_buf, as_attachment=True, download_name=zip_name,
+                         mimetype="application/zip")
+
+    # ── Verizon (and other vendors) ──────────────────────────────────────────
+    from openpyxl import Workbook  # local import: only needed for this route
 
     wb = Workbook()
     ws = wb.active

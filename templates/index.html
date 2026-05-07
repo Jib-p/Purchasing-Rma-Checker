@@ -775,11 +775,11 @@
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                         Download All
                     </a>
-                    {% if selected_vendor == 'verizon' %}
+                    {% if selected_vendor in ['verizon', 'hyla', 'hyla_tps', 'hyla_dls'] %}
                     &nbsp;
                     <a href="/rmad/generate/{{ selected_vendor }}" class="btn btn-primary">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
-                        Generate Request Form
+                        Generate RMA Claim Form
                     </a>
                     {% endif %}
                 </div>
@@ -914,6 +914,9 @@
                     <option value="Low Battery:">Low Battery</option>
                     <option value="ID/MDM Lock:">ID/MDM Lock</option>
                     <option value="__not_sure__">Not Sure / Need to Test</option>
+                    {% if summary.detail_used %}
+                    <option value="__detail_matched__">Matched in Detail Report</option>
+                    {% endif %}
                 </select>
                 <button class="btn-copy" id="copyWidsBtn" onclick="copyWIDs()" style="width:auto; padding: 8px 16px;">
                     Copy WIDs
@@ -962,7 +965,7 @@
                     </thead>
                     <tbody>
                         {% for row in results %}
-                        <tr class="{% if row.get('LCD Mismatch') == 'YES' %}lcd-mismatch{% elif not row.get('Reason(s)') and row.get('Not Sure / Need to Test') %}row-not-sure-only{% elif row.get('Threshold Met') == 'YES' %}threshold-met{% elif row.get('Threshold Met') == 'NO' %}threshold-not-met{% endif %}">
+                        <tr class="{% if row.get('LCD Mismatch') == 'YES' %}lcd-mismatch{% elif not row.get('Reason(s)') and row.get('Not Sure / Need to Test') %}row-not-sure-only{% elif row.get('Threshold Met') == 'YES' %}threshold-met{% elif row.get('Threshold Met') == 'NO' %}threshold-not-met{% endif %}"{% if summary.detail_used and row.get('Detail Lock Status') %} data-in-detail="1"{% endif %}>
                             {% for col in columns %}
                             <td>
                                 {% if col == 'Reason(s)' %}
@@ -1344,6 +1347,8 @@
                         matchReason = notSureCells.length > 0;
                     } else if (reason === '__mismatch__') {
                         matchReason = row.classList.contains('lock-mismatch');
+                    } else if (reason === '__detail_matched__') {
+                        matchReason = row.hasAttribute('data-in-detail');
                     } else if (reason) {
                         matchReason = text.includes(reason.toLowerCase());
                     }
