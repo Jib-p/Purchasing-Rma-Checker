@@ -48,6 +48,9 @@ INVOICES_FILE = (
 # === QC codes that are considered "pass" (not a problem) ===
 # LCD-L1 is treated as pass — L1 burns are not sent for RMA.
 QC_PASS_CODES = {"M00", "LCD-L0", "LCD-L1"}
+# HYLA-only: L2 burns are too subtle to prove in a photo/video, so HYLA
+# does not accept them. Only L3-L5 burns are claimable for HYLA.
+HYLA_EXTRA_PASS_CODES = {"LCD-L2"}
 UNLOCKED_CARRIERS = {"Unlocked", "International (Unlocked)", "Wi-Fi Only", "WiFi", ""}
 
 ICE_COLS = [
@@ -168,29 +171,35 @@ QC_FUNCTIONAL_CATEGORIES = {
 
 # Condition column keywords -> RMA category
 # Cosmetic fails are detected ONLY from the Condition column text, not from QC codes.
-# Order matters — first match wins (more specific phrases before broad ones).
+# Order matters — first match wins. Specific sub-type keywords MUST come before the
+# broad "grade d" / "grade f" catchalls; otherwise "Grade D - Back Glass Only" would
+# match "grade d" first and get labeled Cracked Screen instead of Cracked Back.
 # NOTE: Display burns and display spots are intentionally NOT detected here —
 # they come from the structured QC columns (QC Error Code + Physical QC LCD).
 CONDITION_TO_RMA_CATEGORY = {
     # --- New - Activated ---
     "new - activated":      "New - Activated",
     "newly activated":      "New - Activated",
-    # --- Cracked Screen (display / front glass damage) ---
+    # --- Cracked Camera (specific — must come before "grade d") ---
+    "camera lens":          "Cracked Camera",  # Grade D (Camera Lens Only)
+    # --- Cracked Back (specific — must come before "grade d") ---
+    "back glass":           "Cracked Back",    # Grade D (Back Glass Only)
+    "back cover":           "Cracked Back",    # Grade D (Back Cover dent/bent)
+    "bent":                 "Cracked Back",    # Bent device
+    # --- Cracked Screen (specific) ---
     "bad lcd":              "Cracked Screen",  # Grade F (Bad LCD)
     "display failed":       "Cracked Screen",  # Grade F (Display Failed Only)
     "display imperfection": "Cracked Screen",  # Grade AB (Display Imperfection)
     "front glass":          "Cracked Screen",  # Grade D (Front Glass Only)
-    "grade f":              "Cracked Screen",  # Grade F (any sub-type — usually bad screen)
-    "grade d":              "Cracked Screen",  # Grade D (generic — most common is front glass)
+    "lifted screen":        "Cracked Screen",  # Lifted screen (vendor groups w/ Cracked Screen)
     "ber/scrap":            "Cracked Screen",  # BER / Scrap (severe damage)
-    # --- Cracked Back ---
-    "back glass":           "Cracked Back",    # Grade D (Back Glass Only)
-    # --- Cracked Camera ---
-    "camera lens":          "Cracked Camera",  # Grade D (Camera Lens Only)
     # --- Other ---
     "parts message":        "Parts Message",
     "not cleared":          "Not Cleared",
     "id lock":              "ID/MDM Lock",     # "ID Lock" or "ID Locked"
+    # --- Generic grade fallbacks (last — only if no specific keyword matched) ---
+    "grade f":              "Cracked Screen",  # Grade F generic — usually bad screen
+    "grade d":              "Cracked Screen",  # Grade D generic — most common is front glass
 }
 
 # ---------------------------------------------------------------------------
@@ -251,6 +260,12 @@ def load_rma_grade_rules():
     return rules
 
 RMA_GRADE_RULES = load_rma_grade_rules()
+
+# HYLA no longer accepts speaker fails — force Speaker Fail to NO for all HYLA grades,
+# regardless of what the Vendor RMA Guidelines spreadsheet says.
+for _hyla_vendor in ("HYLA TPS", "HYLA DLS"):
+    for _grade_data in RMA_GRADE_RULES.get(_hyla_vendor, {}).values():
+        _grade_data["Speaker Fail"] = "NO"
 
 
 def _lcd_state_from_condition(cond):
@@ -425,7 +440,7 @@ VENDORS = {
         "returnable": {
             "ID/MDM Lock",
             "Camera Fail", "Buttons Fail", "Touchscreen Fail",
-            "Chargeport Fail", "Parts Message", "Face ID Fail", "Speaker Fail",
+            "Chargeport Fail", "Parts Message", "Face ID Fail",
             "Cracked Screen", "Bleeding LCD", "Cracked Back", "Cracked Camera", "Burns (L2-L5)",
         },
         "not_sure": {"Carrier Locked", "Not Cleared"},
@@ -443,7 +458,7 @@ VENDORS = {
         "returnable": {
             "ID/MDM Lock",
             "Camera Fail", "Buttons Fail", "Touchscreen Fail",
-            "Chargeport Fail", "Parts Message", "Face ID Fail", "Speaker Fail",
+            "Chargeport Fail", "Parts Message", "Face ID Fail",
             "Cracked Screen", "Bleeding LCD", "Cracked Back", "Cracked Camera", "Burns (L2-L5)",
         },
         "not_sure": {"Carrier Locked", "Not Cleared"},
@@ -461,7 +476,7 @@ VENDORS = {
         "returnable": {
             "ID/MDM Lock",
             "Camera Fail", "Buttons Fail", "Touchscreen Fail",
-            "Chargeport Fail", "Parts Message", "Face ID Fail", "Speaker Fail",
+            "Chargeport Fail", "Parts Message", "Face ID Fail",
             "Cracked Screen", "Bleeding LCD", "Cracked Back", "Cracked Camera", "Burns (L2-L5)",
         },
         "not_sure": {"Carrier Locked", "Not Cleared"},
@@ -649,7 +664,7 @@ def get_recent_invoices(vendor_cfg):
     return invoice_set, qty1_map
 
 
-def build_reasons(row, qc_lookup, returnable, not_sure):
+def build_reasons(row, qc_lookup, returnable, not_sure, extra_pass_codes=None):
     """
     Build return reasons for a single device based on per-grade RMA rules.
     Returns (reasons, not_sure_reasons, flags):
@@ -660,6 +675,7 @@ def build_reasons(row, qc_lookup, returnable, not_sure):
     reasons = []
     not_sure_reasons = []
     flags = {"qc": 0, "carrier": 0, "condition": 0, "battery": 0, "id_lock": 0, "not_sure": 0}
+    pass_codes = QC_PASS_CODES | (extra_pass_codes or set())
 
     # --- QC error codes ---
     qc_raw = row.get("QC Error Code")
@@ -682,13 +698,16 @@ def build_reasons(row, qc_lookup, returnable, not_sure):
         alarming = []
         not_sure_qc = []
         for code in codes:
-            if not code or code in QC_PASS_CODES:
+            if not code or code in pass_codes:
                 continue
             rma_cat = QC_CODE_TO_RMA_CATEGORY.get(code)
             desc = qc_lookup.get(code)
+            # Use the QC description as the human-readable issue label (e.g.
+            # "Bent Device", "Flickering / Flashing Only", "Excessive Lifted
+            # Screen") rather than the umbrella RMA category — the description
+            # accurately names the actual defect, while the umbrella tag would
+            # mislabel things like a bent back as "Cracked Back".
             label = f"{code} ({desc})" if desc else code
-            if rma_cat:
-                label += f" [{rma_cat}]"
             if rma_cat:
                 if rma_cat in not_sure:
                     not_sure_qc.append(label)
@@ -766,15 +785,20 @@ def build_reasons(row, qc_lookup, returnable, not_sure):
             flags["not_sure"] = 1
 
     # --- Condition flags ---
+    # The Condition column text already names the specific defect (e.g.
+    # "Grade D - Back Glass Only", "Grade F - Display Failed Only"), so we
+    # surface it as-is. Tagging on the umbrella RMA category would just
+    # repeat "Cracked Screen" on most rows even when the real issue is
+    # back glass, a bent body, or a camera lens.
     cond = str(row.get("Condition") or "").strip()
     for keyword, rma_cat in CONDITION_TO_RMA_CATEGORY.items():
         if keyword in cond.lower():
             if rma_cat in returnable:
-                reasons.append(f"Condition: {cond} [{rma_cat}]")
+                reasons.append(f"Condition: {cond}")
                 flags["condition"] = 1
                 break
             elif rma_cat in not_sure:
-                not_sure_reasons.append(f"Condition: {cond} [{rma_cat}]")
+                not_sure_reasons.append(f"Condition: {cond}")
                 flags["not_sure"] = 1
                 break
 
@@ -840,6 +864,8 @@ def process_ice_report(ice_path, vendor_key, detail_path=None):
         engine="openpyxl",
     )
     ice["Vendor Invoice #"] = ice["Vendor Invoice #"].astype(str).str.strip()
+    if "Pallet #" in ice.columns:
+        ice["Pallet #"] = pd.to_numeric(ice["Pallet #"], errors="coerce").astype("Int64")
     ice = ice[ice["Vendor Invoice #"].isin(target_invoices)].copy()
 
     if ice.empty:
@@ -873,18 +899,36 @@ def process_ice_report(ice_path, vendor_key, detail_path=None):
         if ice.empty:
             return None, "No graded devices found for this vendor."
 
-    # --- Tech Notes block (HYLA only) ---
-    # "Battery Door Replacement" or "Lifted Battery Door" in Tech Notes means
-    # the device cannot be returned via HYLA regardless of any other defects.
+    # --- Tech Notes / Notes block (HYLA only) ---
+    # "Battery Door Replaced/Replacement", "Lifted Battery Door", "Lifted Door",
+    # or "Lifted Back" in Tech Notes (or in Notes if it hasn't been moved to Tech
+    # Notes yet) normally means the device cannot be returned via HYLA.
+    # Exception: A+ and B+ grades (TPS or DLS) can still claim a lifted back —
+    # those devices stay on the results and get "Lifted Back" added as a reason
+    # so they end up on the RMA Claim Form.
     tech_notes_blocked_count = 0
-    if vendor_key in ("hyla", "hyla_tps", "hyla_dls") and "Tech Notes" in ice.columns:
-        blocked_mask = (
-            ice["Tech Notes"].astype(str).str.strip().str.lower()
-            .str.contains(r"battery door replacement|lifted battery door", na=False, regex=True)
-        )
-        tech_notes_blocked_count = int(blocked_mask.sum())
-        if tech_notes_blocked_count > 0:
-            ice = ice[~blocked_mask].copy()
+    lifted_back_keep_mask = pd.Series(False, index=ice.index)
+    if vendor_key in ("hyla", "hyla_tps", "hyla_dls"):
+        lifted_pattern = r"battery door replac|lifted (?:battery door|door|back)"
+        def _has_lifted(col):
+            if col not in ice.columns:
+                return pd.Series(False, index=ice.index)
+            return (
+                ice[col].astype(str).str.strip().str.lower()
+                .str.contains(lifted_pattern, na=False, regex=True)
+            )
+        lifted_mask = _has_lifted("Tech Notes") | _has_lifted("Notes")
+        if lifted_mask.any():
+            grade_series = (
+                ice["Vendor Condition"].astype(str).str.strip().str.upper()
+                .str.split().str[-1].fillna("")
+            )
+            lifted_back_keep_mask = lifted_mask & grade_series.isin({"A+", "B+"})
+            block_mask = lifted_mask & ~lifted_back_keep_mask
+            tech_notes_blocked_count = int(block_mask.sum())
+            if tech_notes_blocked_count > 0:
+                ice = ice[~block_mask].copy()
+                lifted_back_keep_mask = lifted_back_keep_mask.loc[ice.index]
 
     ice["IMEI"] = ice["IMEI"].fillna("").str.split(".").str[0]
 
@@ -936,17 +980,30 @@ def process_ice_report(ice_path, vendor_key, detail_path=None):
         if returnable is None:
             return [], [], {"qc": 0, "carrier": 0, "condition": 0, "battery": 0, "id_lock": 0, "not_sure": 0}
         # HYLA: ignore carrier lock when Vendor Description contains vzw/verizon
+        extra_pass = None
         if vendor_key in ("hyla", "hyla_tps", "hyla_dls"):
+            extra_pass = HYLA_EXTRA_PASS_CODES
             vdesc = str(row.get("Vendor Description") or "").lower()
             if "vzw" in vdesc or "verizon" in vdesc:
                 returnable = returnable - {"Carrier Locked"}
                 not_sure = not_sure - {"Carrier Locked"}
-        return build_reasons(row, qc_lookup, returnable, not_sure)
+        return build_reasons(row, qc_lookup, returnable, not_sure, extra_pass)
 
     results = ice.apply(row_build, axis=1)
     ice["Reason(s)"]              = results.apply(lambda x: " | ".join(x[0]))
     ice["Not Sure / Need to Test"] = results.apply(lambda x: " | ".join(x[1]))
     flag_df = results.apply(lambda x: x[2]).apply(pd.Series)
+
+    # HYLA A+/B+ devices with "lifted back" / "battery door" in their notes were
+    # kept above; surface that here so they appear in candidates and on the form.
+    if bool(lifted_back_keep_mask.any()):
+        keep_aligned = lifted_back_keep_mask.reindex(ice.index, fill_value=False)
+        for idx in ice.index[keep_aligned]:
+            existing = ice.at[idx, "Reason(s)"]
+            ice.at[idx, "Reason(s)"] = (
+                f"{existing} | Lifted Back" if existing else "Lifted Back"
+            )
+            flag_df.at[idx, "condition"] = 1
 
     # Keep devices with a confirmed reason OR a "Not Sure / Need to Test" flag
     # (e.g. Display Spots is "Not sure, need to test" per the RMA sheet but we
@@ -1436,7 +1493,7 @@ def _reason_to_comment(reasons_str):
                         if stripped and stripped not in comments:
                             comments.append(stripped)
         elif part.startswith("Low Battery:"):
-            comments.append("Low Battery")
+            comments.append("Battery < 70%")
         elif part.startswith("ID/MDM Lock:"):
             comments.append("ID/MDM Lock")
         elif part.startswith("New - Activated:"):
@@ -1453,6 +1510,173 @@ def _reason_to_comment(reasons_str):
 
 
 HYLA_RMA_TEMPLATE = os.path.join(BASE_DIR, "hyla_rma_template.xlsx")
+
+# === HYLA "Reason for Return" auto-fill ====================================
+# Dropdown values live in the template at G16:G108. Sourced from RMA_Codes.csv
+# "Hyla Reasoning" column for QC codes; Condition column supplies the
+# cosmetic-grade signal that QC codes alone can't express.
+
+# Lower index = higher priority. Lock/identity issues outrank functional
+# defects (the vendor MUST accept locks; a functional fail can be repaired);
+# functional outranks cosmetic.
+HYLA_REASON_PRIORITY = [
+    "ACTIVATION_LOCK", "MDM LOCK", "USER LOCK", "SIM_LOCK",
+    "FINANCED", "COUNTERFEIT",
+    "NO_POWER", "DISPLAY", "DIGITIZER",
+    "VIDEO/CAMERA", "FACE/TOUCH ID", "SPEAKER/MIC", "BTOOTH/WIFI/GPS",
+    "FUNCTIONAL",
+    "CRACKS", "COSMETIC", "SCRATCHES",
+    "INCORRECT CARRIER", "INCORRECT MODEL", "INCORRECT CAPACITY",
+]
+
+QC_CODE_TO_HYLA_REASON = {
+    # R-series
+    "R1": "DISPLAY", "R2": "DISPLAY", "R3": "DISPLAY", "R4": "DISPLAY", "R9": "DISPLAY",
+    "R5": "FUNCTIONAL", "R7": "FUNCTIONAL", "R8": "FUNCTIONAL",
+    "R6": "COSMETIC",
+    # M-series
+    "M01": "NO_POWER", "M09": "NO_POWER",
+    "M02": "DISPLAY",
+    "M03": "DIGITIZER", "M28": "DIGITIZER",
+    "M04": "FUNCTIONAL", "M05": "FUNCTIONAL", "M06": "FUNCTIONAL",
+    "M07": "FUNCTIONAL", "M13": "FUNCTIONAL", "M14": "FUNCTIONAL",
+    "M15": "FUNCTIONAL", "M16": "FUNCTIONAL", "M21": "FUNCTIONAL",
+    "M23": "FUNCTIONAL", "M24": "FUNCTIONAL", "M25": "FUNCTIONAL",
+    "M26": "FUNCTIONAL", "M27": "FUNCTIONAL", "M29": "FUNCTIONAL",
+    "M33": "FUNCTIONAL", "M35": "FUNCTIONAL",
+    "M08": "SPEAKER/MIC", "M12": "SPEAKER/MIC", "M19": "SPEAKER/MIC", "M30": "SPEAKER/MIC",
+    "FUNC P01": "SPEAKER/MIC", "FUNC P02": "SPEAKER/MIC", "FUNC P03": "SPEAKER/MIC",
+    "M11": "VIDEO/CAMERA", "M18": "VIDEO/CAMERA",
+    "M17": "FACE/TOUCH ID",
+    "M20": "BTOOTH/WIFI/GPS",
+    "M22": "COUNTERFEIT",
+    "M31": "ACTIVATION_LOCK",
+    "M32": "FINANCED",
+    "M34": "COSMETIC",
+    # LCD-L0/L1/L2 are pass codes for HYLA (L2 is too subtle to prove in
+    # photo/video); only L3-L5 are returnable burn issues.
+    "LCD-L3": "DISPLAY", "LCD-L4": "DISPLAY", "LCD-L5": "DISPLAY",
+    "LCD-F01": "DISPLAY", "LCD-F03": "DISPLAY", "LCD-F04": "DISPLAY", "LCD-F05": "DISPLAY",
+    "LCD-F06": "DISPLAY", "LCD-F07": "DISPLAY", "LCD-F08": "DISPLAY", "LCD-F09": "DISPLAY",
+    "LCD-F10": "DISPLAY", "LCD-F11": "DISPLAY", "LCD-F12": "DISPLAY", "LCD-F13": "DISPLAY",
+    "LCD-F14": "DISPLAY",
+    "LCD-P01": "DISPLAY", "LCD-P02": "DISPLAY", "LCD-P03": "DISPLAY", "LCD-P04": "DISPLAY",
+    "LCD-PP1": "DISPLAY", "LCD-PP2": "DISPLAY", "LCD-PP3": "DISPLAY",
+    "PHY-F01": "COSMETIC", "PHY-F02": "COSMETIC", "PHY-F03": "COSMETIC",
+    "PHY-F04": "COSMETIC", "PHY-F05": "COSMETIC", "PHY-F09": "COSMETIC",
+    "PHY-P01": "COSMETIC", "PHY-P02": "SCRATCHES", "PHY-P03": "COSMETIC",
+    "PHY-P09": "COSMETIC", "PHY-P11": "COSMETIC", "PHY-P12": "VIDEO/CAMERA",
+    "PHY-P13": "COSMETIC", "PHY-P14": "COSMETIC", "PHY-P15": "COSMETIC",
+    "PHY-P16": "FUNCTIONAL", "PHY-P17": "COSMETIC",
+}
+
+# First match wins — keep specific keywords before generic grade fallbacks.
+CONDITION_TO_HYLA_REASON = [
+    ("camera lens",          "VIDEO/CAMERA"),
+    ("front glass",          "CRACKS"),
+    ("back glass",           "CRACKS"),
+    ("back cover",           "COSMETIC"),
+    ("bent",                 "COSMETIC"),
+    ("bad lcd",              "DISPLAY"),
+    ("display failed",       "DISPLAY"),
+    ("display imperfection", "DISPLAY"),
+    ("lifted screen",        "COSMETIC"),
+    ("ber/scrap",            "FUNCTIONAL"),
+    ("not cleared",          "COUNTERFEIT"),
+    ("activation lock",      "ACTIVATION_LOCK"),
+    ("id lock",              "ACTIVATION_LOCK"),
+    ("mdm",                  "MDM LOCK"),
+    ("new - activated",      "USER LOCK"),
+    ("newly activated",      "USER LOCK"),
+    ("grade f",              "DISPLAY"),
+    ("grade d",              "CRACKS"),
+]
+
+
+# Credit Amount = Cost × multiplier, keyed by the picked HYLA reason.
+# DISPLAY is split at use-site into burn (L3-L5 / "burn" in condition) vs bad LCD.
+# Anything not listed falls back to FUNCTIONAL (0.45).
+HYLA_CREDIT_MULTIPLIERS = {
+    "ACTIVATION_LOCK": 0.8,
+    "MDM LOCK": 0.8,
+    "USER LOCK": 0.8,
+    "SIM_LOCK": 0.25,
+    "CRACKS": 0.33,
+}
+HYLA_DISPLAY_BURN_MULT = 0.3
+HYLA_DISPLAY_LCD_MULT = 0.6
+HYLA_DEFAULT_MULT = 0.45
+LCD_BURN_PATTERN = re.compile(r"\bL[3-5]\b")
+
+
+def _hyla_credit_amount(row, hyla_reason):
+    """Compute Credit Amount = Cost × multiplier for a candidate row.
+
+    Multiplier comes from HYLA_CREDIT_MULTIPLIERS; DISPLAY splits into burn vs
+    bad LCD. Returns a rounded float, or None when Cost is missing/invalid.
+    """
+    cost_raw = row.get("Cost")
+    try:
+        cost = float(str(cost_raw).replace("$", "").replace(",", "").strip())
+    except (TypeError, ValueError):
+        return None
+    if cost <= 0:
+        return None
+
+    if hyla_reason == "DISPLAY":
+        phys_lcd = str(row.get("Physical QC LCD") or "").strip().upper()
+        cond_lower = str(row.get("Condition") or "").lower()
+        is_burn = bool(LCD_BURN_PATTERN.search(phys_lcd)) or "burn" in cond_lower
+        multiplier = HYLA_DISPLAY_BURN_MULT if is_burn else HYLA_DISPLAY_LCD_MULT
+    else:
+        multiplier = HYLA_CREDIT_MULTIPLIERS.get(hyla_reason, HYLA_DEFAULT_MULT)
+    return round(cost * multiplier, 2)
+
+
+def _pick_hyla_reason(row):
+    """Pick the best HYLA 'Reason for Return' dropdown value for a candidate row.
+
+    Reads QC Error Code, Physical QC LCD/Board, Reason(s), and Condition.
+    Returns the highest-priority HYLA reason, or "" if nothing maps.
+    """
+    candidates = set()
+
+    qc_raw = row.get("QC Error Code")
+    qc_str = "" if qc_raw is None or (isinstance(qc_raw, float) and pd.isna(qc_raw)) else str(qc_raw)
+    for code in (c.strip() for c in qc_str.split(",") if c.strip()):
+        if code in QC_PASS_CODES or code in HYLA_EXTRA_PASS_CODES:
+            continue
+        mapped = QC_CODE_TO_HYLA_REASON.get(code)
+        if mapped:
+            candidates.add(mapped)
+
+    phys_lcd = str(row.get("Physical QC LCD") or "").strip().upper()
+    if re.search(r'\bL[3-5]\b', phys_lcd):
+        candidates.add("DISPLAY")
+
+    if str(row.get("Physical QC Board") or "").strip() == "Battery 0-69%":
+        candidates.add("NO_POWER")
+
+    reasons_lower = str(row.get("Reason(s)") or "").lower()
+    if "carrier locked" in reasons_lower:
+        candidates.add("SIM_LOCK")
+    if "id/mdm lock" in reasons_lower or "activation lock" in reasons_lower:
+        candidates.add("ACTIVATION_LOCK")
+    if "lifted back" in reasons_lower or "battery door" in reasons_lower or "lifted door" in reasons_lower:
+        candidates.add("COSMETIC")
+
+    cond_lower = str(row.get("Condition") or "").lower()
+    for keyword, reason in CONDITION_TO_HYLA_REASON:
+        if keyword in cond_lower:
+            candidates.add(reason)
+            break
+
+    if not candidates:
+        return ""
+    for reason in HYLA_REASON_PRIORITY:
+        if reason in candidates:
+            return reason
+    return next(iter(candidates))
 
 
 def _generate_hyla_rma_form(df, download_date=None):
@@ -1515,8 +1739,13 @@ def _generate_hyla_rma_form(df, download_date=None):
         ws.cell(row=row_idx, column=4).value = model
         # E = PO/Order # (number format '0' preserved)
         ws.cell(row=row_idx, column=5).value = int(pallet) if pallet.isdigit() else pallet
-        # F = Credit Amount — left blank (formula in D7 will sum when filled)
-        # G = Reason for Return — left blank (dropdown preserved from template)
+        # G = Reason for Return — auto-picked from QC code / condition / locks
+        hyla_reason = _pick_hyla_reason(row)
+        ws.cell(row=row_idx, column=7).value = hyla_reason
+        # F = Credit Amount — Cost × reason multiplier (formula in D7 sums col F)
+        credit = _hyla_credit_amount(row, hyla_reason)
+        if credit is not None:
+            ws.cell(row=row_idx, column=6).value = credit
         # H = Additional Comments
         ws.cell(row=row_idx, column=8).value = comment
 
@@ -1584,9 +1813,25 @@ def rmad_generate(vendor_key):
         date_str = datetime.now().strftime("%m%d%y")
         now = datetime.now()
 
-        def _invoice_filename(invoice, warehouse):
+        def _invoice_filename(pallet, warehouse):
             w_part = f"{warehouse} " if warehouse else ""
-            return f"{w_part}({invoice}).xlsx"
+            return f"{w_part}({pallet}).xlsx"
+
+        def _clean_num(v):
+            s = str(v or "").strip()
+            if s.lower() in ("", "nan"):
+                return ""
+            if s.endswith(".0"):
+                s = s[:-2]
+            return s
+
+        def _pallet_for(inv_df):
+            if "Pallet #" in inv_df.columns:
+                for v in inv_df["Pallet #"]:
+                    s = _clean_num(v)
+                    if s:
+                        return s
+            return ""
 
         def _warehouse_for(inv_df):
             if "Vendor Notes" in inv_df.columns:
@@ -1604,8 +1849,9 @@ def rmad_generate(vendor_key):
         if len(invoices) == 1:
             inv_df = df[df["Invoice"] == invoices[0]]
             warehouse = _warehouse_for(inv_df)
+            pallet = _pallet_for(inv_df) or _clean_num(invoices[0])
             wb = _generate_hyla_rma_form(inv_df, download_date=now)
-            fname = _invoice_filename(invoices[0], warehouse)
+            fname = _invoice_filename(pallet, warehouse)
             out_path = os.path.join(app.config["UPLOAD_FOLDER"], fname)
             wb.save(out_path)
             return send_file(out_path, as_attachment=True, download_name=fname)
@@ -1616,12 +1862,14 @@ def rmad_generate(vendor_key):
             for invoice in sorted(invoices):
                 inv_df = df[df["Invoice"] == invoice]
                 warehouse = _warehouse_for(inv_df)
+                pallet = _pallet_for(inv_df) or _clean_num(invoice)
                 wb = _generate_hyla_rma_form(inv_df, download_date=now)
                 xl_buf = io.BytesIO()
                 wb.save(xl_buf)
-                zf.writestr(_invoice_filename(invoice, warehouse), xl_buf.getvalue())
+                zf.writestr(_invoice_filename(pallet, warehouse), xl_buf.getvalue())
         zip_buf.seek(0)
-        zip_name = "HYLA RMA Claim Forms.zip"
+        vendor_label = VENDORS[vendor_key].get("name", vendor_key)
+        zip_name = f"{vendor_label} RMA Claim Forms {date_str}.zip"
         return send_file(zip_buf, as_attachment=True, download_name=zip_name,
                          mimetype="application/zip")
 
