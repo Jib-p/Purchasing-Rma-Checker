@@ -20,6 +20,14 @@ app.secret_key = os.environ.get("FLASK_SECRET_KEY") or "dev-insecure-key-change-
 app.config["UPLOAD_FOLDER"] = os.path.join(os.path.dirname(__file__), "uploads")
 app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50MB max upload
 
+# Session cookie hardening. SECURE is gated on an env flag so local HTTP dev
+# still works; set SESSION_COOKIE_SECURE=1 (the default) in production behind HTTPS.
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_SECURE"] = (
+    os.environ.get("SESSION_COOKIE_SECURE", "1").lower() in ("1", "true", "yes")
+)
+
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 
 
@@ -414,6 +422,22 @@ def get_grade_rules(vendor_name, vendor_condition, fallback_returnable, fallback
     grade = parts[-1] if parts else ""
 
     grade_data = vendor_rules.get(grade)
+    if grade_data is None and cond:
+        # Robust fallback for carrier-auction grades (e.g. Sprint/T-Mobile
+        # "A+", "B-", "C+", "CPO", "DBR") where the grade may not be the last
+        # whitespace token or may differ in case. Match a known grade as a
+        # whole word, most-specific first so "A+" beats "A" and "B-" beats "B".
+        # The "+"/"-" suffix is treated as part of the token so plain "A" is
+        # never read out of "A+". Non-standard grades (CPO, DBR, DWF, N, blank)
+        # have no column and stay unmatched → device is excluded.
+        by_upper = {g.upper(): g for g in vendor_rules}
+        grade_data = vendor_rules.get(by_upper.get(grade.upper(), ""))
+        if grade_data is None:
+            cond_up = cond.upper()
+            for g in sorted(vendor_rules, key=len, reverse=True):
+                if re.search(rf"(?<![\w+\-]){re.escape(g.upper())}(?![\w+\-])", cond_up):
+                    grade_data = vendor_rules[g]
+                    break
     if grade_data is None:
         # Grade not in guidelines → suppress device entirely
         return None, None
@@ -495,9 +519,11 @@ VENDORS = {
     },
     "sprint": {
         "name": "Sprint",
-        "description": "Source phones from Sprint inventory. Return carrier-locked (TMO/Sprint/Metro) devices only via Sprint dispute process.",
+        "description": "Source phones from Sprint / T-Mobile auction inventory. Rules vary by cosmetic grade (NEW, A+/A/A-, B+/B/B-, C+/C/C-, D — see grade table below). Non-standard grades (CPO, DBR, DWF, N/blank) are excluded — parts-only or no grade assessment.",
         "invoice_pattern": r"sprint",
         "lookback_days": 30,
+        # Fallback only — actual rules come from RMA_GRADE_RULES["Sprint"] per
+        # device grade. Used if the Sprint guidelines columns are ever removed.
         "returnable": {
             "Carrier Locked",
             # Sprint: only TMO/Sprint/Metro carrier locked devices
@@ -1454,7 +1480,198 @@ def scan():
 
 
 # Vendors that support generating a vendor-facing Request Form (xlsx) from candidates
-REQUEST_FORM_VENDORS = {"verizon", "hyla", "hyla_tps", "hyla_dls"}
+REQUEST_FORM_VENDORS = {"verizon", "hyla", "hyla_tps", "hyla_dls", "sprint"}
+
+# Sprint / T-Mobile auction RMA form layout (one flat sheet).
+# Columns A–K are supplied by the T-Mobile ASN (Advance Shipping Notice)
+# manifest, joined to our return candidates by Serial No (= device IMEI).
+# The RMA form is those ASN columns plus a Notes column built from the reasons.
+SPRINT_ASN_COLUMNS = [
+    "Auction Date", "SAP Customer Number", "Customer Organization",
+    "Invoice Number", "Lot ID", "Carrier", "Auction Model", "Grade",
+    "Serial No", "Master Carton ID", "Ship Date",
+]
+SPRINT_RMA_COLUMNS = SPRINT_ASN_COLUMNS + ["Notes"]
+# Constants used as a fallback for candidates not found in the ASN manifest.
+SPRINT_SAP_CUSTOMER_NUMBER = "0000780054"
+SPRINT_CUSTOMER_ORG = "Mannapov LLC"
+SPRINT_CARRIER = "T-MOBILE"
+# Grade tokens recognized in the Vendor Condition column, most-specific first
+# so "A+" is matched before "A" and "B-" before "B".
+SPRINT_FORM_GRADES = ["A+", "A-", "B+", "B-", "C+", "C-", "NEW", "A", "B", "C", "D"]
+
+
+def load_sprint_asn(path):
+    """Load a T-Mobile ASN manifest into {serial_no: {column: value}} keyed by
+    Serial No (the device IMEI). Returns {} if the file lacks a Serial No column.
+    """
+    df = pd.read_excel(path, dtype=str, engine="openpyxl")
+    df.columns = [re.sub(r"\s+", " ", str(c)).strip() for c in df.columns]
+    if "Serial No" not in df.columns:
+        return {}
+    index = {}
+    for _, row in df.iterrows():
+        serial = str(row.get("Serial No") or "").strip().split(".")[0]
+        if not serial or serial.lower() == "nan":
+            continue
+        rec = {}
+        for col in SPRINT_ASN_COLUMNS:
+            v = row.get(col)
+            s = "" if v is None or (isinstance(v, float) and pd.isna(v)) else str(v).strip()
+            rec[col] = "" if s.lower() == "nan" else s
+        index.setdefault(serial, rec)
+    return index
+
+
+def _sprint_grade(vendor_condition):
+    """Pull the device's cosmetic grade from the Vendor Condition string.
+    Returns "" when no recognized grade is present."""
+    cond = str(vendor_condition or "").strip().upper()
+    if not cond:
+        return ""
+    last = cond.split()[-1]
+    for g in SPRINT_FORM_GRADES:
+        if last == g:
+            return g
+    for g in SPRINT_FORM_GRADES:
+        if re.search(rf"(?<![\w+\-]){re.escape(g)}(?![\w+\-])", cond):
+            return g
+    return ""
+
+
+def _sprint_note(row):
+    """Build the Sprint RMA form 'Notes' value from a candidate's reasons.
+    Produces concise, comma-separated tags (e.g. "Carrier Locked, Blacklisted").
+    """
+    reasons = str(row.get("Reason(s)") or "")
+    not_sure = str(row.get("Not Sure / Need to Test") or "")
+    qc = str(row.get("QC Error Code") or "").upper()
+    cond = str(row.get("Condition") or "")
+    qc_codes = {c.strip() for c in qc.split(",") if c.strip()}
+    blob = f"{reasons} | {not_sure} | {cond}".lower()
+
+    tags = []
+    def add(t):
+        if t and t not in tags:
+            tags.append(t)
+
+    if "carrier locked" in blob:
+        add("Carrier Locked")
+    if qc_codes & {"M32", "M33"} or "blacklist" in blob or "not cleared" in blob or "jailbroken" in blob:
+        add("Blacklisted")
+    if "M31" in qc_codes or "id/mdm" in blob or "id lock" in blob or "mdm" in blob or "activation lock" in blob:
+        add("MDM Locked")
+
+    # Remaining cosmetic / functional fragments. QC fragments look like
+    # "M11 (Back Camera Picture/Video)" — keep the description, drop the code.
+    # Condition fragments ("Grade D - Back Glass Only") are kept as-is.
+    lock_tags = {"carrier locked", "blacklisted", "mdm locked"}
+    bare_code = re.compile(r"^(?:M\d{2}|LCD-L\d|R\d+|FUNC\s*P\d+|[A-Z]\d{1,3})$", re.I)
+    for chunk in (reasons, not_sure):
+        for seg in chunk.split("|"):
+            seg = seg.strip()
+            if not seg or seg.lower() == "nan" or seg.lower().startswith("carrier locked"):
+                continue
+            seg = re.sub(r"^(QC|Condition|Low Battery|New - Activated)\s*:\s*", "", seg, flags=re.I).strip()
+            for piece in seg.split(";"):
+                piece = piece.strip()
+                if not piece:
+                    continue
+                m = re.match(r"^[A-Za-z0-9\-\s]{1,14}\((.+)\)$", piece)
+                if m:
+                    label = m.group(1).strip()           # QC description inside parens
+                else:
+                    label = re.sub(r"\s*\((?:GSX|Detail)[^)]*\)", "", piece).strip()
+                if not label or label.lower() in lock_tags or bare_code.match(label):
+                    continue
+                add(label)
+
+    return ", ".join(tags)
+
+
+def _sprint_form_values(row, asn):
+    """Return the 12 RMA-form cell values for one device.
+    Columns A–K come from the matched ASN row; if `asn` is None the device fell
+    outside the manifest, so use the constants + ICE-derived model/grade and
+    leave the auction-specific fields blank. Notes (L) is built from the reasons.
+    """
+    imei = str(row.get("IMEI") or "").strip().split(".")[0]
+    note = _sprint_note(row)
+    if asn:
+        return [asn.get(col, "") for col in SPRINT_ASN_COLUMNS] + [note]
+
+    model = str(row.get("Vendor Description") or "").strip()
+    if not model or model.lower() == "nan":
+        model = str(row.get("Vendor Model") or "").strip()
+    if not model or model.lower() == "nan":
+        model = str(row.get("Model") or "").strip()
+    if model.lower() == "nan":
+        model = ""
+    return [
+        "",                          # Auction Date
+        SPRINT_SAP_CUSTOMER_NUMBER,  # SAP Customer Number
+        SPRINT_CUSTOMER_ORG,         # Customer Organization
+        "",                          # Invoice Number
+        "",                          # Lot ID
+        SPRINT_CARRIER,              # Carrier
+        model,                       # Auction Model
+        _sprint_grade(row.get("Vendor Condition")),  # Grade
+        imei,                        # Serial No
+        "",                          # Master Carton ID
+        "",                          # Ship Date
+        note,                        # Notes
+    ]
+
+
+def group_sprint_candidates_by_lot(df, asn_index=None):
+    """Join candidates to the ASN by Serial No (= IMEI) and group their form
+    rows by Lot ID. Each Lot ID becomes its own RMA form. Devices not found in
+    the ASN have no Lot ID and are grouped under the "" key.
+
+    Returns an ordered dict { lot_id: [value_row, ...] }.
+    """
+    asn_index = asn_index or {}
+    groups = {}
+    for _, row in df.iterrows():
+        imei = str(row.get("IMEI") or "").strip().split(".")[0]
+        if not imei or not imei.isdigit():
+            continue
+        asn = asn_index.get(imei)
+        lot_id = (asn.get("Lot ID", "") if asn else "") or ""
+        groups.setdefault(lot_id, []).append(_sprint_form_values(row, asn))
+    return groups
+
+
+def _build_sprint_workbook(value_rows):
+    """Build a single Sprint RMA-form workbook from pre-computed 12-column rows.
+    All cells are written as text so leading zeros (SAP #, dates) and 15-digit
+    IMEIs are preserved exactly."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+    from openpyxl.utils import get_column_letter
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "RMA"
+    ws.append(SPRINT_RMA_COLUMNS)
+    for c in range(1, len(SPRINT_RMA_COLUMNS) + 1):
+        ws.cell(row=1, column=c).font = Font(bold=True)
+
+    for values in value_rows:
+        ws.append(values)
+
+    for r in range(1, ws.max_row + 1):
+        for c in range(1, len(SPRINT_RMA_COLUMNS) + 1):
+            ws.cell(row=r, column=c).number_format = "@"
+
+    for col_idx in range(1, len(SPRINT_RMA_COLUMNS) + 1):
+        max_len = max(
+            (len(str(ws.cell(row=r, column=col_idx).value or "")) for r in range(1, ws.max_row + 1)),
+            default=0,
+        )
+        ws.column_dimensions[get_column_letter(col_idx)].width = max_len + 2
+
+    return wb
 
 
 def _reason_to_comment(reasons_str):
@@ -1787,7 +2004,7 @@ def invoice_to_order_date(invoice_number):
     return datetime.now().strftime("%m/%d/%y")
 
 
-@app.route("/rmad/generate/<vendor_key>", methods=["GET"])
+@app.route("/rmad/generate/<vendor_key>", methods=["GET", "POST"])
 def rmad_generate(vendor_key):
     """Generate a vendor Request Form (.xlsx) from the latest candidates CSV for this vendor.
 
@@ -1870,6 +2087,66 @@ def rmad_generate(vendor_key):
         zip_buf.seek(0)
         vendor_label = VENDORS[vendor_key].get("name", vendor_key)
         zip_name = f"{vendor_label} RMA Claim Forms {date_str}.zip"
+        return send_file(zip_buf, as_attachment=True, download_name=zip_name,
+                         mimetype="application/zip")
+
+    # ── Sprint / T-Mobile auction RMA form ──────────────────────────────────
+    if vendor_key == "sprint":
+        # The ASN (Advance Shipping Notice) manifest fills columns A–K, joined
+        # to the candidates by Serial No (= IMEI). It's uploaded with the form.
+        asn_index = {}
+        asn = request.files.get("asn_file")
+        if asn and asn.filename:
+            asn_name = secure_filename(asn.filename)
+            if not asn_name.lower().endswith((".xlsx", ".xls")):
+                flash("ASN file must be .xlsx or .xls.", "error")
+                return redirect(url_for("index"))
+            asn_path = os.path.join(app.config["UPLOAD_FOLDER"], f"asn_{asn_name}")
+            asn.save(asn_path)
+            try:
+                asn_index = load_sprint_asn(asn_path)
+            finally:
+                if os.path.exists(asn_path):
+                    os.remove(asn_path)
+            if not asn_index:
+                flash("Couldn't read the ASN file — no 'Serial No' column found.", "error")
+                return redirect(url_for("index"))
+
+        # Each Lot ID is RMA'd separately, so emit one form per Lot ID. The
+        # Lot ID doubles as the filename (T-Mobile convention, e.g.
+        # "04212026SETB993660.xlsx"); a single lot downloads directly, multiple
+        # lots come back zipped.
+        groups = group_sprint_candidates_by_lot(df, asn_index)
+        if not groups:
+            flash("No devices to export — process an ICE report first.", "error")
+            return redirect(url_for("index"))
+
+        def _lot_filename(lot_id):
+            if lot_id:
+                return f"{secure_filename(lot_id)}.xlsx"
+            return f"Sprint RMA {datetime.now():%m%d%y} (no Lot ID).xlsx"
+
+        if len(groups) == 1:
+            lot_id, rows = next(iter(groups.items()))
+            wb = _build_sprint_workbook(rows)
+            fname = _lot_filename(lot_id)
+            out_path = os.path.join(app.config["UPLOAD_FOLDER"], fname)
+            wb.save(out_path)
+            return send_file(out_path, as_attachment=True, download_name=fname)
+
+        # Multiple Lot IDs → ZIP of one form each
+        import io as _io
+        import zipfile as _zipfile
+
+        zip_buf = _io.BytesIO()
+        with _zipfile.ZipFile(zip_buf, "w", _zipfile.ZIP_DEFLATED) as zf:
+            for lot_id, rows in sorted(groups.items()):
+                wb = _build_sprint_workbook(rows)
+                xl_buf = _io.BytesIO()
+                wb.save(xl_buf)
+                zf.writestr(_lot_filename(lot_id), xl_buf.getvalue())
+        zip_buf.seek(0)
+        zip_name = f"Sprint RMA Forms {datetime.now():%m%d%y}.zip"
         return send_file(zip_buf, as_attachment=True, download_name=zip_name,
                          mimetype="application/zip")
 
@@ -2096,4 +2373,10 @@ def serve_photo(filename):
 if __name__ == "__main__":
     os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
     os.makedirs(PHOTOS_DIR, exist_ok=True)
-    app.run(debug=True, host="0.0.0.0", port=5000)
+    # Debug mode is OFF by default. Enable locally with FLASK_DEBUG=1.
+    # NEVER run with debug enabled in production — it exposes the Werkzeug
+    # interactive debugger, which allows arbitrary remote code execution.
+    debug = os.environ.get("FLASK_DEBUG", "").lower() in ("1", "true", "yes")
+    host = os.environ.get("FLASK_HOST", "127.0.0.1")
+    port = int(os.environ.get("FLASK_PORT", "5000"))
+    app.run(debug=debug, host=host, port=port)

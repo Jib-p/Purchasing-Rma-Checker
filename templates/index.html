@@ -781,9 +781,38 @@
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
                         Generate RMA Claim Form
                     </a>
+                    {% elif selected_vendor == 'sprint' %}
+                    &nbsp;
+                    <button type="button" class="btn btn-primary" onclick="toggleSprintForm()">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+                        Generate Sprint RMA Form
+                    </button>
                     {% endif %}
                 </div>
             </div>
+
+            {% if selected_vendor == 'sprint' %}
+            <!-- Sprint RMA: upload the T-Mobile ASN manifest to fill the form -->
+            <div id="sprintRmaForm" style="display:none; margin:0 0 14px; padding:14px; border:1px solid #e2e8f0; border-radius:8px; background:#f7fafc;">
+                <form method="POST" action="/rmad/generate/sprint" enctype="multipart/form-data"
+                      style="display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin:0;">
+                    <label style="font-size:13px; color:#4a5568; font-weight:600;">ASN file (T-Mobile manifest):</label>
+                    <input type="file" name="asn_file" accept=".xlsx,.xls" required
+                           style="font-size:13px; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px; background:white;">
+                    <button type="submit" class="btn btn-primary" style="padding:8px 18px; font-size:13px;">Build RMA Form</button>
+                    <span style="font-size:12px; color:#718096; flex-basis:100%;">
+                        Matches each return candidate to the ASN by Serial No to fill Auction Date, Invoice #, Lot ID,
+                        Carrier, Model, Grade, Master Carton ID &amp; Ship Date. The Notes column is built from the return reasons.
+                    </span>
+                </form>
+            </div>
+            <script>
+                function toggleSprintForm() {
+                    var f = document.getElementById('sprintRmaForm');
+                    if (f) f.style.display = (f.style.display === 'none' || !f.style.display) ? 'block' : 'none';
+                }
+            </script>
+            {% endif %}
 
             {% if summary.vendor_description %}
             <div class="vendor-desc-bar">

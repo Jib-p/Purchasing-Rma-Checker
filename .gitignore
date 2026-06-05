@@ -46,3 +46,15 @@ uploads/photos/
 *.docx
 !Vendor RMA Guidelines.xlsx
 !RMA_Codes.csv
+# Required runtime template — app errors without it (app.py loads it to build HYLA forms)
+!hyla_rma_template.xlsx
+
+# Local scratch / experiments — not part of the app
+practice.py
+Amazon_1-level_1-KB_formatted.json
+
+# Reference docs / images — not used by the app, keep out of the repo
+*.pdf
+*.png
+*.jpg
+*.jpeg
